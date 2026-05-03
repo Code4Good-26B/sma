@@ -2,9 +2,19 @@ import feedparser
 import json
 from datetime import datetime
 import uuid
+import html
 
-RSS_URL = "https://smanewstoday.com/feed/"
-SOURCE_NAME = "SMA News Today"
+
+SOURCES = [
+    {
+        "name": "Cure SMA",
+        "url": "https://www.curesma.org/feed/"
+    },
+    {
+        "name": "SMA Europe",
+        "url": "https://www.sma-europe.eu/feed/"
+    }
+]
 
 
 def parse_date(entry):
@@ -14,38 +24,41 @@ def parse_date(entry):
 
 
 def fetch_articles():
-    feed = feedparser.parse(RSS_URL)
     articles = []
 
-    for entry in feed.entries:
-        article = {
-            "id": str(uuid.uuid4()),  # temporary unique id
-
-            "title": entry.get("title"),
-
-            "source": SOURCE_NAME,
-
-            "url": entry.get("link"),
-
-            "published_at": parse_date(entry),
-
-            "language": "en",
-
-            "content": "",  # Sprint 1 → leave empty
-
-            "snippet": entry.get("summary", ""),
-
-            "collected_at": datetime.utcnow().isoformat() + "Z",
-
-            "posted_at": None,
-
-            "metadata": {
-                "author": entry.get("author", ""),
-                "tags": [tag.term for tag in entry.get("tags", [])] if "tags" in entry else []
+    for source in SOURCES:
+        feed = feedparser.parse(
+            source["url"],
+            request_headers={
+                "User-Agent": "Mozilla/5.0"
             }
-        }
+        )
 
-        articles.append(article)
+        print("Source:", source["name"])
+        print("Feed status:", feed.get("status"))
+        print("Feed title:", feed.feed.get("title"))
+        print("Entries found:", len(feed.entries))
+        print("Bozo:", feed.bozo)
+
+        for entry in feed.entries:
+            article = {
+                "id": str(uuid.uuid4()),
+                "title": entry.get("title"),
+                "source": source["name"],
+                "url": entry.get("link"),
+                "published_at": parse_date(entry),
+                "language": "en",
+                "content": "",
+                "snippet": html.unescape(entry.get("summary", "")),
+                "collected_at": datetime.utcnow().isoformat() + "Z",
+                "posted_at": "",
+                "metadata": {
+                    "author": entry.get("author", ""),
+                    "tags": [tag.term for tag in entry.get("tags", [])] if "tags" in entry else []
+                }
+            }
+
+            articles.append(article)
 
     return articles
 
