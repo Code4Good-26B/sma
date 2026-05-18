@@ -70,5 +70,28 @@ for link in links:
 
         articles.append(article)
 
+import os
+
+OUTPUT_FILE = "data/normalized/collected_items.json"
+
+existing_articles = []
+
+if os.path.exists(OUTPUT_FILE):
+    with open(OUTPUT_FILE, "r") as f:
+        existing_articles = json.load(f)
+
+existing_urls = {article["url"] for article in existing_articles}
+
+new_articles = []
+
 for article in articles:
-    print(json.dumps(article, indent=2))
+    if article["url"] not in existing_urls:
+        new_articles.append(article)
+
+all_articles = existing_articles + new_articles
+
+with open(OUTPUT_FILE, "w") as f:
+    json.dump(all_articles, f, indent=2)
+
+print(f"Added {len(new_articles)} new SMA Europe articles.")
+print(f"Total articles in collection: {len(all_articles)}")
