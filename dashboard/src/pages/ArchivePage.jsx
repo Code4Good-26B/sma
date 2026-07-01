@@ -3,19 +3,19 @@ import { useState } from 'react';
 import NewsCard from '../components/NewsCards';
 
 const TABS = [
-  { key: 'approved', label: 'אושרו' },
-  { key: 'rejected', label: 'נדחו' },
+  { key: 'approved',   label: 'אושרו' },
+  { key: 'irrelevant', label: 'נדחו' },
 ];
 
 export default function ArchivePage({ articles, onUpdate }) {
   const [activeFilter, setActiveFilter] = useState('approved');
-  const filteredArticles = articles.filter(a => a.editorialStatus === activeFilter);
+  const filteredArticles = articles.filter(a => a.review_status === activeFilter);
 
   return (
     <section>
       <div style={tabBarStyle}>
         {TABS.map(tab => {
-          const count = articles.filter(a => a.editorialStatus === tab.key).length;
+          const count = articles.filter(a => a.review_status === tab.key).length;
           const isActive = activeFilter === tab.key;
           return (
             <button

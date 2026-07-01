@@ -3,10 +3,10 @@ import { useMemo } from 'react';
 
 
 const STATUS_META = {
-  pending:  { label: 'ממתינות לאישור', color: '#94a3b8' },
-  draft:    { label: 'טיוטות',  color: '#f59e0b' },
-  approved: { label: 'אושרו',   color: '#22c55e' },
-  rejected: { label: 'נדחו',    color: '#ef4444' },
+  not_reviewed: { label: 'ממתינות לאישור', color: '#94a3b8' },
+  needs_edit:   { label: 'טיוטות',         color: '#f59e0b' },
+  approved:     { label: 'אושרו',           color: '#22c55e' },
+  irrelevant:   { label: 'נדחו',            color: '#ef4444' },
 };
 
 const MONTHS_HE = ['ינו׳','פבר׳','מרץ','אפר׳','מאי','יונ׳','יול׳','אוג׳','ספט׳','אוק׳','נוב׳','דצמ׳'];
@@ -27,23 +27,23 @@ export default function StatsPage({ articles }) {
   const curY = now.getFullYear();
 
   const counts = useMemo(() => {
-    const c = { pending: 0, draft: 0, approved: 0, rejected: 0 };
-    articles.forEach(a => { if (c[a.editorialStatus] !== undefined) c[a.editorialStatus]++; });
+    const c = { not_reviewed: 0, needs_edit: 0, approved: 0, irrelevant: 0 };
+    articles.forEach(a => { if (c[a.review_status] !== undefined) c[a.review_status]++; });
     return c;
   }, [articles]);
 
   const collectedThisMonth = useMemo(() =>
     articles.filter(a => {
-      const d = new Date(a.collected_at || a.published_at);
+      const d = new Date(a.created_at);
       return d.getMonth() === curM && d.getFullYear() === curY;
     }).length, [articles, curM, curY]);
 
   const publishedWebsite = useMemo(() =>
-    articles.filter(a => a.editorialStatus === 'approved' && a.destinations?.website).length,
+    articles.filter(a => a.review_status === 'approved' && (a.publish_target === 'website' || a.publish_target === 'both')).length,
     [articles]);
 
   const publishedNewsletter = useMemo(() =>
-    articles.filter(a => a.editorialStatus === 'approved' && a.destinations?.newsletter).length,
+    articles.filter(a => a.review_status === 'approved' && (a.publish_target === 'newsletter' || a.publish_target === 'both')).length,
     [articles]);
 
   const approvalRate = articles.length
@@ -54,7 +54,7 @@ export default function StatsPage({ articles }) {
   const bySource = useMemo(() => {
     const map = {};
     articles.forEach(a => {
-      const k = (a.source || '').trim();
+      const k = (a.source_name || '').trim();
       if (k) map[k] = (map[k] || 0) + 1;
     });
     return Object.entries(map)
@@ -69,7 +69,7 @@ export default function StatsPage({ articles }) {
       const d = new Date(curY, curM - (5 - i), 1);
       const m = d.getMonth(), y = d.getFullYear();
       const count = articles.filter(a => {
-        const ad = new Date(a.collected_at || a.published_at);
+        const ad = new Date(a.created_at);
         return ad.getMonth() === m && ad.getFullYear() === y;
       }).length;
       return { label: MONTHS_HE[m], count };
@@ -79,22 +79,22 @@ export default function StatsPage({ articles }) {
 
   // Status breakdown
   const totalArt = articles.length || 1;
-  const statusRows = ['pending', 'draft', 'approved', 'rejected'].map(s => ({
+  const statusRows = ['not_reviewed', 'needs_edit', 'approved', 'irrelevant'].map(s => ({
     ...STATUS_META[s],
     count: counts[s],
     pct: Math.round((counts[s] / totalArt) * 100),
   }));
 
   // Channel split (approved only)
-  const approved = articles.filter(a => a.editorialStatus === 'approved');
-  const websiteOnly    = approved.filter(a =>  a.destinations?.website && !a.destinations?.newsletter).length;
-  const newsletterOnly = approved.filter(a => !a.destinations?.website &&  a.destinations?.newsletter).length;
-  const both           = approved.filter(a =>  a.destinations?.website &&  a.destinations?.newsletter).length;
+  const approved = articles.filter(a => a.review_status === 'approved');
+  const websiteOnly    = approved.filter(a => a.publish_target === 'website').length;
+  const newsletterOnly = approved.filter(a => a.publish_target === 'newsletter').length;
+  const both           = approved.filter(a => a.publish_target === 'both').length;
 
   // Activity log
   const recentActivity = useMemo(() =>
     [...articles]
-      .sort((a, b) => new Date(b.collected_at || b.published_at) - new Date(a.collected_at || a.published_at))
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 5),
     [articles]);
 
@@ -104,7 +104,7 @@ export default function StatsPage({ articles }) {
 
       {/* KPI Row 1 */}
       <div style={kpiGridStyle}>
-        {['pending', 'draft', 'approved', 'rejected'].map(key => (
+        {['not_reviewed', 'needs_edit', 'approved', 'irrelevant'].map(key => (
           <div key={key} style={kpiCardStyle}>
             <div style={{ ...kpiNumStyle, color: STATUS_META[key].color }}>{counts[key]}</div>
             <div style={kpiLabelStyle}>{STATUS_META[key].label}</div>
@@ -213,14 +213,14 @@ export default function StatsPage({ articles }) {
               <div key={a.id} style={activityRowStyle}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-h)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {a.outputs.title_he}
+                    {a.reviewed_title_he ?? a.title_he ?? ''}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text)', marginTop: '2px' }}>
-                    {a.source} · {timeAgo(a.collected_at || a.published_at)}
+                    {a.source_name} · {timeAgo(a.created_at)}
                   </div>
                 </div>
-                <span style={{ ...badgeStyle, background: STATUS_META[a.editorialStatus]?.color }}>
-                  {STATUS_META[a.editorialStatus]?.label}
+                <span style={{ ...badgeStyle, background: STATUS_META[a.review_status]?.color }}>
+                  {STATUS_META[a.review_status]?.label}
                 </span>
               </div>
             ))}

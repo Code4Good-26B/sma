@@ -2,50 +2,80 @@
 import { useState } from 'react';
 
 const BADGE = {
-  pending:  { text: 'ממתין', bg: '#94a3b8' },
-  draft:    { text: 'טיוטה', bg: '#f59e0b' },
-  approved: { text: 'אושר',  bg: '#22c55e' },
-  rejected: { text: 'נדחה',  bg: '#ef4444' },
+  not_reviewed: { text: 'ממתין',      bg: '#94a3b8' },
+  needs_edit:   { text: 'לעריכה',     bg: '#f59e0b' },
+  approved:     { text: 'אושר',       bg: '#22c55e' },
+  irrelevant:   { text: 'לא רלוונטי', bg: '#ef4444' },
 };
 
 const STATUS_BORDER = {
-  draft:    '#f59e0b',
-  approved: '#22c55e',
-  rejected: '#ef4444',
-  pending:  'transparent',
+  needs_edit:   '#f59e0b',
+  approved:     '#22c55e',
+  irrelevant:   '#ef4444',
+  not_reviewed: 'transparent',
+};
+
+const toPublishTarget = ({ website, newsletter }) => {
+  if (website && newsletter) return 'both';
+  if (website) return 'website';
+  if (newsletter) return 'newsletter';
+  return 'none';
 };
 
 export default function NewsCard({ article, onUpdate }) {
-  const { id, source, published_at, url, outputs, editorialStatus } = article;
-  const [showModal, setShowModal] = useState(false);
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [skipRejectConfirm, setSkipRejectConfirm] = useState(false);
-  const [editTitle, setEditTitle] = useState(outputs.title_he);
-  const [editSummary, setEditSummary] = useState(outputs.summary_he);
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  const [approveDestinations, setApproveDestinations] = useState({ website: false, newsletter: false });
-  const [expanded, setExpanded] = useState(false);
+  const {
+    id,
+    source_name,
+    published_at,
+    source_url,
+    title_he,
+    summary_he,
+    reviewed_title_he,
+    reviewed_summary_he,
+    review_status,
+    processing_status,
+  } = article;
 
-  const formattedDate = new Date(published_at).toLocaleDateString('he-IL');
-  const isTruncated = outputs.summary_he.length > 180;
+  const isProcessing = processing_status !== 'done';
+
+  const displayTitle   = reviewed_title_he   ?? title_he   ?? '';
+  const displaySummary = reviewed_summary_he ?? summary_he ?? '';
+
+  const [showModal, setShowModal]                   = useState(false);
+  const [showRejectModal, setShowRejectModal]       = useState(false);
+  const [skipRejectConfirm, setSkipRejectConfirm]   = useState(false);
+  const [editTitle, setEditTitle]                   = useState(displayTitle);
+  const [editSummary, setEditSummary]               = useState(displaySummary);
+  const [showApproveModal, setShowApproveModal]     = useState(false);
+  const [approveDestinations, setApproveDestinations] = useState({ website: false, newsletter: false });
+  const [expanded, setExpanded]                     = useState(false);
+
+  const formattedDate  = published_at ? new Date(published_at).toLocaleDateString('he-IL') : '—';
+  const isTruncated    = displaySummary.length > 180;
   const summarySnippet = isTruncated && !expanded
-    ? outputs.summary_he.substring(0, 180)
-    : outputs.summary_he;
+    ? displaySummary.substring(0, 180)
+    : displaySummary;
 
   const openModal = () => {
-    setEditTitle(outputs.title_he);
-    setEditSummary(outputs.summary_he);
+    setEditTitle(reviewed_title_he ?? title_he ?? '');
+    setEditSummary(reviewed_summary_he ?? summary_he ?? '');
     setShowModal(true);
   };
 
   const saveDraft = () => {
-    onUpdate(id, { outputs: { ...outputs, title_he: editTitle, summary_he: editSummary }, editorialStatus: 'draft' });
+    onUpdate(id, {
+      reviewed_title_he:   editTitle,
+      reviewed_summary_he: editSummary,
+      review_status:       'needs_edit',
+      reviewed_by:         'michal',
+      reviewed_at:         new Date().toISOString(),
+    });
     setShowModal(false);
   };
 
   const handleRejectClick = () => {
     if (localStorage.getItem('skipRejectConfirm') === 'true') {
-      onUpdate(id, { editorialStatus: 'rejected' });
+      onUpdate(id, { review_status: 'irrelevant', reviewed_by: 'michal', reviewed_at: new Date().toISOString() });
     } else {
       setSkipRejectConfirm(false);
       setShowRejectModal(true);
@@ -54,12 +84,12 @@ export default function NewsCard({ article, onUpdate }) {
 
   const confirmReject = () => {
     if (skipRejectConfirm) localStorage.setItem('skipRejectConfirm', 'true');
-    onUpdate(id, { editorialStatus: 'rejected' });
+    onUpdate(id, { review_status: 'irrelevant', reviewed_by: 'michal', reviewed_at: new Date().toISOString() });
     setShowRejectModal(false);
   };
 
   const openApproveFromEdit = () => {
-    onUpdate(id, { outputs: { ...outputs, title_he: editTitle, summary_he: editSummary } });
+    onUpdate(id, { reviewed_title_he: editTitle, reviewed_summary_he: editSummary });
     setShowModal(false);
     setApproveDestinations({ website: false, newsletter: false });
     setShowApproveModal(true);
@@ -67,40 +97,57 @@ export default function NewsCard({ article, onUpdate }) {
 
   return (
     <>
-      <div style={{ ...cardStyle, opacity: editorialStatus === 'rejected' ? 0.6 : 1, borderLeft: `4px solid ${STATUS_BORDER[editorialStatus] ?? 'transparent'}` }}>
-        <div style={cardHeaderStyle}>
-          <h3 style={{ margin: 0, fontSize: '1rem' }}>{outputs.title_he}</h3>
+      <div style={{ ...cardStyle, borderLeft: `4px solid ${STATUS_BORDER[review_status] ?? 'transparent'}` }}>
+        <div style={{ opacity: review_status === 'irrelevant' ? 0.6 : 1 }}>
+          <div style={cardHeaderStyle}>
+            <h3 style={{ margin: 0, fontSize: '1rem' }}>{displayTitle}</h3>
+          </div>
+          <div style={metaStyle}>
+            <strong>מקור:</strong> {source_name} | <strong>תאריך:</strong> {formattedDate} |{' '}
+            <a href={source_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>מעבר למקור</a>
+          </div>
+          {isProcessing ? (
+            <p style={processingPlaceholderStyle}>הידיעה עדיין בתהליך עיבוד</p>
+          ) : (
+            <p style={{ lineHeight: '1.5', marginTop: '12px', marginBottom: '12px', fontSize: '0.85rem' }}>
+              {summarySnippet}
+              {isTruncated && (
+                <>
+                  {!expanded && '...'}
+                  <button onClick={() => setExpanded(e => !e)} style={readMoreBtnStyle}>
+                    {expanded ? 'קרא פחות' : 'קרא עוד'}
+                  </button>
+                </>
+              )}
+            </p>
+          )}
         </div>
-        <div style={metaStyle}>
-          <strong>מקור:</strong> {source} | <strong>תאריך:</strong> {formattedDate} |{' '}
-          <a href={url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>מעבר למקור</a>
-        </div>
-        <p style={{ lineHeight: '1.5', marginTop: '12px', marginBottom: '12px', fontSize: '0.85rem' }}>
-          {summarySnippet}
-          {isTruncated && (
+
+        <div style={actionsStyle}>
+          {review_status === 'irrelevant' ? (
+            <button
+              style={{ ...btnStyle, backgroundColor: 'var(--secondary)', color: '#fff', borderColor: 'var(--secondary)' }}
+              onClick={() => onUpdate(id, { review_status: 'not_reviewed' })}
+            >
+              החזרה לתור ידיעות חדשות
+            </button>
+          ) : (
             <>
-              {!expanded && '...'}
-              <button onClick={() => setExpanded(e => !e)} style={readMoreBtnStyle}>
-                {expanded ? 'קרא פחות' : 'קרא עוד'}
+              <button style={btnStyle} onClick={openModal}>עריכה</button>
+              <button
+                style={{ ...btnStyle, backgroundColor: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
+                onClick={() => { setApproveDestinations({ website: false, newsletter: false }); setShowApproveModal(true); }}
+              >
+                פירסום
+              </button>
+              <button
+                style={{ ...btnStyle, backgroundColor: '#ef4444', color: '#fff', borderColor: '#ef4444' }}
+                onClick={handleRejectClick}
+              >
+                דחייה
               </button>
             </>
           )}
-        </p>
-
-        <div style={actionsStyle}>
-          <button style={btnStyle} onClick={openModal}>עריכה</button>
-          <button
-            style={{ ...btnStyle, backgroundColor: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
-            onClick={() => { setApproveDestinations({ website: false, newsletter: false }); setShowApproveModal(true); }}
-          >
-            פירסום
-          </button>
-          <button
-            style={{ ...btnStyle, backgroundColor: '#ef4444', color: '#fff', borderColor: '#ef4444' }}
-            onClick={handleRejectClick}
-          >
-            דחייה
-          </button>
         </div>
       </div>
 
@@ -163,7 +210,15 @@ export default function NewsCard({ article, onUpdate }) {
             <div style={modalFooterStyle}>
               <button
                 style={{ ...btnStyle, backgroundColor: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
-                onClick={() => { onUpdate(id, { editorialStatus: 'approved', destinations: approveDestinations }); setShowApproveModal(false); }}
+                onClick={() => {
+                  onUpdate(id, {
+                    review_status:  'approved',
+                    publish_target: toPublishTarget(approveDestinations),
+                    reviewed_by:    'michal',
+                    reviewed_at:    new Date().toISOString(),
+                  });
+                  setShowApproveModal(false);
+                }}
               >
                 פירסום
               </button>
@@ -318,6 +373,14 @@ const approveCheckboxesStyle = {
   display: 'flex',
   gap: '20px',
   padding: '8px 0',
+};
+
+const processingPlaceholderStyle = {
+  margin: '12px 0',
+  fontSize: '0.85rem',
+  color: 'var(--text)',
+  fontStyle: 'italic',
+  opacity: 0.6,
 };
 
 const readMoreBtnStyle = {

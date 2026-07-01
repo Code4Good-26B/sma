@@ -3,31 +3,47 @@ import { useState } from 'react';
 import NewsCard from '../components/NewsCards';
 
 const TABS = [
-  { key: 'pending', label: 'ידיעות הממתינות לאישור' },
-  { key: 'draft',   label: 'טיוטות' },
+  { key: 'not_reviewed', label: 'ידיעות הממתינות לאישור' },
+  { key: 'needs_edit',   label: 'טיוטות' },
 ];
 
 export default function FeedPage({ articles, onUpdate }) {
-  const [activeFilter, setActiveFilter] = useState('pending');
-  const filteredArticles = articles.filter(a => a.editorialStatus === activeFilter);
+  const [activeFilter, setActiveFilter] = useState('not_reviewed');
+  const [hideProcessing, setHideProcessing] = useState(false);
+
+  const tabArticles = articles.filter(a => a.review_status === activeFilter);
+  const filteredArticles = hideProcessing
+    ? tabArticles.filter(a => a.processing_status === 'done')
+    : tabArticles;
 
   return (
     <section>
-      <div style={tabBarStyle}>
-        {TABS.map(tab => {
-          const count = articles.filter(a => a.editorialStatus === tab.key).length;
-          const isActive = activeFilter === tab.key;
-          return (
-            <button
-              key={tab.key}
-              style={{ ...tabStyle, ...(isActive ? activeTabStyle : {}) }}
-              onClick={() => setActiveFilter(tab.key)}
-            >
-              {tab.label}
-              <span style={badgeStyle}>{count}</span>
-            </button>
-          );
-        })}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div style={tabBarStyle}>
+          {TABS.map(tab => {
+            const count = articles.filter(a => a.review_status === tab.key).length;
+            const isActive = activeFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                style={{ ...tabStyle, ...(isActive ? activeTabStyle : {}) }}
+                onClick={() => setActiveFilter(tab.key)}
+              >
+                {tab.label}
+                <span style={badgeStyle}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+        <label style={filterToggleStyle}>
+          <input
+            type="checkbox"
+            checked={hideProcessing}
+            onChange={e => setHideProcessing(e.target.checked)}
+            style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
+          />
+          הסתרת ידיעות בעיבוד
+        </label>
       </div>
 
       {filteredArticles.map(article => (
@@ -40,6 +56,17 @@ export default function FeedPage({ articles, onUpdate }) {
     </section>
   );
 }
+
+const filterToggleStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  fontSize: '0.82rem',
+  color: 'var(--text)',
+  cursor: 'pointer',
+  paddingBottom: '8px',
+  userSelect: 'none',
+};
 
 const tabBarStyle = {
   display: 'flex',
