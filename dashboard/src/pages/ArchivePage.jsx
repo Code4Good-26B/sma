@@ -7,9 +7,21 @@ const TABS = [
   { key: 'irrelevant', label: 'נדחו' },
 ];
 
+const matchesSearch = (a, q) => {
+  const title   = (a.reviewed_title_he   ?? a.title_he   ?? '').toLowerCase();
+  const summary = (a.reviewed_summary_he ?? a.summary_he ?? '').toLowerCase();
+  return title.includes(q) || summary.includes(q);
+};
+
 export default function ArchivePage({ articles, onUpdate }) {
   const [activeFilter, setActiveFilter] = useState('approved');
-  const filteredArticles = articles.filter(a => a.review_status === activeFilter);
+  const [searchQuery, setSearchQuery]   = useState('');
+
+  const tabArticles = articles.filter(a => a.review_status === activeFilter);
+  const q = searchQuery.trim().toLowerCase();
+  const filteredArticles = q
+    ? tabArticles.filter(a => matchesSearch(a, q))
+    : tabArticles;
 
   return (
     <section>
@@ -21,7 +33,7 @@ export default function ArchivePage({ articles, onUpdate }) {
             <button
               key={tab.key}
               style={{ ...tabStyle, ...(isActive ? activeTabStyle : {}) }}
-              onClick={() => setActiveFilter(tab.key)}
+              onClick={() => { setActiveFilter(tab.key); setSearchQuery(''); }}
             >
               {tab.label}
               <span style={badgeStyle}>{count}</span>
@@ -30,16 +42,41 @@ export default function ArchivePage({ articles, onUpdate }) {
         })}
       </div>
 
+      <input
+        type="search"
+        placeholder="חיפוש בכותרת ובתוכן..."
+        value={searchQuery}
+        onChange={e => setSearchQuery(e.target.value)}
+        style={searchInputStyle}
+      />
+
       {filteredArticles.map(article => (
         <NewsCard key={article.id} article={article} onUpdate={onUpdate} />
       ))}
 
       {filteredArticles.length === 0 && (
-        <p style={{ color: '#888', textAlign: 'right', marginTop: '24px' }}>אין כתבות בסטטוס זה.</p>
+        <p style={{ color: '#888', textAlign: 'right', marginTop: '24px' }}>
+          {q ? 'לא נמצאו כתבות התואמות את החיפוש.' : 'אין כתבות בסטטוס זה.'}
+        </p>
       )}
     </section>
   );
 }
+
+const searchInputStyle = {
+  width: '100%',
+  padding: '8px 14px',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  fontSize: '0.9rem',
+  boxSizing: 'border-box',
+  textAlign: 'right',
+  background: 'var(--bg)',
+  color: 'var(--text-h)',
+  fontFamily: 'inherit',
+  marginBottom: '20px',
+  outline: 'none',
+};
 
 const tabBarStyle = {
   display: 'flex',

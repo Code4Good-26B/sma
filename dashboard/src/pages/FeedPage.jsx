@@ -7,14 +7,25 @@ const TABS = [
   { key: 'needs_edit',   label: 'טיוטות' },
 ];
 
+const matchesSearch = (a, q) => {
+  const title   = (a.reviewed_title_he   ?? a.title_he   ?? '').toLowerCase();
+  const summary = (a.reviewed_summary_he ?? a.summary_he ?? '').toLowerCase();
+  return title.includes(q) || summary.includes(q);
+};
+
 export default function FeedPage({ articles, onUpdate }) {
-  const [activeFilter, setActiveFilter] = useState('not_reviewed');
+  const [activeFilter, setActiveFilter]   = useState('not_reviewed');
   const [hideProcessing, setHideProcessing] = useState(false);
+  const [searchQuery, setSearchQuery]     = useState('');
 
   const tabArticles = articles.filter(a => a.review_status === activeFilter);
-  const filteredArticles = hideProcessing
+  const processedArticles = hideProcessing
     ? tabArticles.filter(a => a.processing_status === 'done')
     : tabArticles;
+  const q = searchQuery.trim().toLowerCase();
+  const filteredArticles = q
+    ? processedArticles.filter(a => matchesSearch(a, q))
+    : processedArticles;
 
   return (
     <section>
@@ -27,7 +38,7 @@ export default function FeedPage({ articles, onUpdate }) {
               <button
                 key={tab.key}
                 style={{ ...tabStyle, ...(isActive ? activeTabStyle : {}) }}
-                onClick={() => setActiveFilter(tab.key)}
+                onClick={() => { setActiveFilter(tab.key); setSearchQuery(''); }}
               >
                 {tab.label}
                 <span style={badgeStyle}>{count}</span>
@@ -46,12 +57,22 @@ export default function FeedPage({ articles, onUpdate }) {
         </label>
       </div>
 
+      <input
+        type="search"
+        placeholder="חיפוש בכותרת ובתוכן..."
+        value={searchQuery}
+        onChange={e => setSearchQuery(e.target.value)}
+        style={searchInputStyle}
+      />
+
       {filteredArticles.map(article => (
         <NewsCard key={article.id} article={article} onUpdate={onUpdate} />
       ))}
 
       {filteredArticles.length === 0 && (
-        <p style={{ color: '#888', textAlign: 'right', marginTop: '24px' }}>אין ידיעות בסטטוס זה.</p>
+        <p style={{ color: '#888', textAlign: 'right', marginTop: '24px' }}>
+          {q ? 'לא נמצאו ידיעות התואמות את החיפוש.' : 'אין ידיעות בסטטוס זה.'}
+        </p>
       )}
     </section>
   );
@@ -66,6 +87,21 @@ const filterToggleStyle = {
   cursor: 'pointer',
   paddingBottom: '8px',
   userSelect: 'none',
+};
+
+const searchInputStyle = {
+  width: '100%',
+  padding: '8px 14px',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  fontSize: '0.9rem',
+  boxSizing: 'border-box',
+  textAlign: 'right',
+  background: 'var(--bg)',
+  color: 'var(--text-h)',
+  fontFamily: 'inherit',
+  marginBottom: '20px',
+  outline: 'none',
 };
 
 const tabBarStyle = {
