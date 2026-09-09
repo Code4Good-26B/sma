@@ -18,8 +18,10 @@ docs/db_contract.md
 
 ## Files
 
-- `schema.sql` - Creates the main database schema.
+- `schema.sql` - Creates the main database schema: `content_items` and `collector_runs`.
 - `seed.sql` - Inserts sample data for development and testing.
+- `reset.sql` - Drops `content_items` and `collector_runs` entirely. Used together with `schema.sql` to apply schema changes to a dev database (see below).
+- `check.sql` - Quick inspection queries, including a Collector health check, for development and testing.
 - `retention_policy.sql` - Defines how old heavy fields are cleaned to keep the database small.
 - `README.md` - Explains how to use the database setup files.
 
@@ -35,6 +37,38 @@ To initialize the database:
 4. Run `seed.sql` if sample data is needed.
 
 `schema.sql` should be treated as the source of truth for the actual database structure.
+
+---
+
+## Applying a schema change to an existing dev database
+
+There is no migration framework. `schema.sql` is the single source of truth for the target table structure, and dev databases are rebuilt from it rather than incrementally altered.
+
+To apply a schema change (new/removed columns, new constraints, etc.) to an existing dev database:
+
+1. Run `reset.sql`.
+2. Run `schema.sql`.
+
+**This destroys all data.** `reset.sql` drops the tables entirely (not just their rows), because `TRUNCATE` preserves the old table structure and cannot apply a schema change. Only do this against disposable test data — never against a database anyone depends on for real data.
+
+---
+
+## Running the Collector
+
+The Collector is a single command:
+
+```bash
+python collector/main.py
+```
+
+It scrapes each configured source, checks the database for articles it already has,
+downloads full content only for new ones, and writes directly into `content_items`.
+There is no intermediate JSON file and no separate DB-writing step — the database is
+the only durable state between runs, which is what lets it run unattended on a
+schedule (e.g. GitHub Actions) without re-downloading everything on every run.
+
+Every run is also recorded in `collector_runs` (see `docs/db_contract.md`) so the
+Dashboard can show whether the Collector is alive.
 
 ---
 
@@ -134,6 +168,16 @@ The important shared rules are:
 
 ---
 
+## Row Level Security
+
+RLS is enabled on `content_items` and `collector_runs`, with permissive SELECT/UPDATE policies (no INSERT/DELETE) for the `anon`/`authenticated` roles the Dashboard's Supabase anon key uses. See `docs/db_contract.md` for the full breakdown.
+
+These policies are defined in `schema.sql` and must never be changed through the Supabase UI — `schema.sql` is the single source of truth and must stay reproducible.
+
+This is not real authentication — the anon key is public (embedded in client-side JS). Adding proper Supabase Auth to the Dashboard is a separate, still-open task that must be done before handover.
+
+---
+
 ## Retention policy
 
 The file `retention_policy.sql` defines how old heavy fields are cleaned to keep the database small.
@@ -141,7 +185,6 @@ The file `retention_policy.sql` defines how old heavy fields are cleaned to keep
 The current policy removes heavy raw fields from old completed items, such as:
 
 - `raw_text`
-- `raw_html`
 
 The policy keeps important metadata, review decisions, summaries, source URLs, and publishing information.
 

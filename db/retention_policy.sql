@@ -1,7 +1,8 @@
+-- raw_html is no longer stored at all (column removed), so there is nothing
+-- to clear here — only raw_text needs to be nulled out.
 update content_items
 set
     raw_text = null,
-    raw_html = null,
     archived_at = now()
 where created_at < now() - interval '90 days'
   and archived_at is null

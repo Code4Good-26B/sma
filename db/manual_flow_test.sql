@@ -8,8 +8,7 @@ insert into content_items (
     external_id,
     published_at,
     title_en,
-    raw_text,
-    raw_html
+    raw_text
 )
 values (
     'MANUAL_TEST',
@@ -18,8 +17,7 @@ values (
     'manual-test-stage-13',
     now(),
     'Manual test article',
-    'This is a manual test article used to verify the full database workflow.',
-    null
+    'This is a manual test article used to verify the full database workflow.'
 );
 
 -- Verify that the Processor can find pending items

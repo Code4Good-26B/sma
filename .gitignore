@@ -5,3 +5,8 @@ __pycache__/
 node_modules/
 .DS_Store
 out/
+
+# Local scratch data — the collector no longer uses a JSON intermediate file;
+# the database is the single source of truth. This directory is kept around
+# only as sample/test data on disk, not as pipeline state.
+data/normalized/

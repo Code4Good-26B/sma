@@ -97,7 +97,6 @@ def fetch_from_rss(source, since_date):
                 "title_en": entry.get("title", ""),
                 "snippet": html.unescape(entry.get("summary", "")),
                 "raw_text": "",
-                "raw_html": "",
             })
 
         # Stop if the oldest article on this page is already past the cutoff

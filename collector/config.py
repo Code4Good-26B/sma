@@ -1,8 +1,16 @@
 # Collector configuration — all tunable parameters are here.
 
-LOOKBACK_DAYS = 3
+LOOKBACK_DAYS = 14
 # How many days back to collect articles.
-# Run the collector daily for full coverage with overlap.
+#
+# The window is deliberately much wider than the daily run interval — this
+# is a self-healing margin, not a duplicate-fetching risk. The collector can
+# be broken for up to two weeks (a source down, GitHub Actions misconfigured,
+# nobody noticing for a while — this project has no maintainer) and still
+# lose nothing once it is fixed. It costs almost nothing to keep this wide:
+# the DB is checked for existing source_urls before any article page is
+# downloaded, so re-scanning old listings is cheap — only genuinely new
+# articles trigger a fetch.
 # Change this value to adjust the collection window.
 
 MAX_PAGES = 10

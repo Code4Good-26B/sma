@@ -90,7 +90,6 @@ def _scrape_sma_europe(source, since_date):
                 "title_en": title,
                 "snippet": snippet,
                 "raw_text": "",
-                "raw_html": "",
             })
 
         if not page_articles:
@@ -162,7 +161,6 @@ def _scrape_sma_news_today(source):
                 "title_en": title,
                 "snippet": snippet,
                 "raw_text": "",
-                "raw_html": "",
             })
 
         if not page_articles:

@@ -1,6 +1,22 @@
 -- Quick inspection queries for development and testing.
 -- Run via Supabase SQL Editor.
 
+-- Collector health: most recent run, its status, how long ago it finished,
+-- and how many items it inserted. This is the query the Dashboard's health
+-- indicator is built on: "the most recent row with status in ('success', 'partial')".
+SELECT
+    id,
+    status,
+    started_at,
+    finished_at,
+    now() - finished_at AS time_since_finished,
+    items_seen,
+    items_inserted,
+    error_message
+FROM collector_runs
+ORDER BY started_at DESC
+LIMIT 1;
+
 -- Total articles by source
 SELECT source_name, COUNT(*) AS total
 FROM content_items

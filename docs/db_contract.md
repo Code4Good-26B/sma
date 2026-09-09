@@ -20,6 +20,12 @@ The general flow is:
 
 ### Collector
 
+Runs as a single command, `python collector/main.py`, intended to run unattended
+(e.g. a daily GitHub Actions job). It scrapes each configured source, checks the
+database for source URLs it already has, downloads full content only for new
+articles, and writes new rows directly to `content_items` — there is no
+intermediate file; the database is the only durable state between runs.
+
 Writes new rows.
 
 Responsible fields:
@@ -31,7 +37,7 @@ Responsible fields:
 - `published_at`
 - `title_en`
 - `raw_text`
-- `raw_html`
+- `image_url`
 
 Initial statuses:
 
@@ -40,7 +46,7 @@ Initial statuses:
 - `publish_target = 'none'`
 - `publish_status = 'not_published'`
 
-The Collector should avoid inserting duplicate items by checking `source_url`.
+The Collector should avoid inserting duplicate items by checking `source_url`. The database also enforces uniqueness on `(source_name, external_id)`, since `source_url` alone is not a stable identity for every source (e.g. an edited title can change a Cure SMA article's URL while its WordPress post ID in `external_id` stays the same).
 
 ---
 
@@ -152,6 +158,43 @@ When publishing fails, the Publisher should update:
 
 - `publish_status = 'failed'`
 - `error_message`
+
+---
+
+## Health monitoring
+
+`collector_runs`
+
+The Collector writes to this table. The Dashboard reads from it to show whether the system is alive. No other component touches it.
+
+There is one row per Collector execution (not per source). Per-source detail is recorded in the `sources` jsonb column.
+
+The Collector should:
+
+- Insert a row with `status = 'running'` when a run starts.
+- Update that row when the run ends, setting `finished_at`, `items_seen`, `items_inserted`, and the final `status`.
+
+Allowed `status` values:
+
+- `running` — the run is in progress. A row that stays `running` (never gets `finished_at` set) means the process died mid-run. That is itself a useful signal that something is wrong.
+- `success` — every source completed without error. A run that finds zero new articles is still a success — quiet weeks are normal for a low-volume news source and must not be reported as a failure.
+- `partial` — at least one source failed and at least one source succeeded.
+- `failed` — the run could not complete.
+
+The Dashboard's health check is: the most recent row where `status in ('success', 'partial')`, and how long ago it finished. This is enough to tell a non-technical user "the collector is working" or "the collector has not run successfully in N days" without needing to understand the rest of the schema.
+
+---
+
+## Access control
+
+Row Level Security is enabled on `content_items` and `collector_runs`, with deliberately permissive policies (defined in `schema.sql`) for the `anon` / `authenticated` roles:
+
+- `content_items` — SELECT and UPDATE only. There are no INSERT or DELETE policies, so the anon key cannot be used to create or destroy rows.
+- `collector_runs` — SELECT only.
+
+The Collector and Processor connect via `DATABASE_URL` as the table owner, which bypasses RLS entirely, so these policies only affect the Dashboard's anon-key access.
+
+**This is not real authentication.** The anon key is embedded in the Dashboard's client-side JavaScript and is therefore public. Anyone who finds the Dashboard URL can currently read every article and modify Michal's review decisions. The missing INSERT/DELETE policies limit the blast radius but do not fix this. Adding proper Supabase Auth to the Dashboard is a separate, still-open task that must be completed before handover.
 
 ---
 
