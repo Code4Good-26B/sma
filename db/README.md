@@ -72,6 +72,16 @@ Dashboard can show whether the Collector is alive.
 
 ---
 
+## Automation
+
+The Collector runs automatically on a daily schedule via GitHub Actions — see
+[`.github/README.md`](../.github/README.md) for what runs, when, the one required
+secret (`DATABASE_URL`), and — importantly — why a second, monthly "heartbeat"
+workflow exists to stop GitHub from silently disabling the daily schedule after 60
+days of repository inactivity.
+
+---
+
 ## Environment variables
 
 Each developer should create a local `.env` file based on `.env.example`.

@@ -1,0 +1,54 @@
+name: Collector
+
+# Runs the SMA news Collector daily. The database (see db/schema.sql) is the
+# only durable state the Collector needs — there is no cache or JSON file to
+# restore between runs, so a fresh runner every day is fine.
+on:
+  schedule:
+    # 05:00 UTC = 08:00 Israel time (year-round; Israel's UTC+3 summer clock
+    # would make this 08:00 too, since cron here is always interpreted as
+    # UTC regardless of any daylight-saving change). GitHub Actions cron is
+    # always UTC, never the repository's local time.
+    # Note: GitHub may delay scheduled runs by several minutes under load —
+    # that's expected and fine, nothing here is time-sensitive.
+    - cron: "0 5 * * *"
+  # Lets a human trigger a run on demand from the Actions tab. This is how
+  # whoever inherits this project (with no other documentation to go on)
+  # can check "is this thing still working?" without waiting for tomorrow.
+  workflow_dispatch: {}
+
+# Prevent two collector runs from ever overlapping (e.g. a manual trigger
+# firing while the scheduled run is still in progress).
+concurrency:
+  group: collector
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    # A hung run (e.g. a source hanging on a slow response) should not burn
+    # Actions minutes indefinitely.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run collector
+        env:
+          # The collector's only required secret. shared/python/db_client.py
+          # reads this via os.getenv("DATABASE_URL") — its load_dotenv() call
+          # is a no-op here since no .env file exists on the runner, so a
+          # plain environment variable is all that's needed.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python collector/main.py
+        # No `continue-on-error` here: main.py already returns a non-zero
+        # exit code on a 'failed' or 'partial' run, and that must fail this
+        # job so GitHub emails the repository admins. That email is the only
+        # automatic failure signal this project has.

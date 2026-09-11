@@ -1,0 +1,74 @@
+name: Heartbeat
+
+# WHY THIS FILE EXISTS — please read before deleting it.
+#
+# GitHub automatically disables a scheduled workflow after 60 days with no
+# repository activity (https://docs.github.com/en/actions/using-workflows/
+# events-that-trigger-workflows#schedule). This project is handed over to a
+# nonprofit with no ongoing maintainer, so nobody will be pushing commits —
+# which means the Collector's daily schedule (collector.yml) WILL be silently
+# disabled by GitHub around month three, and nobody will notice, because the
+# whole point of automating the Collector was that nobody has to watch it.
+#
+# This workflow is NOT a health check and NOT a test of the Collector. Its
+# only purpose is to make one small, harmless commit each month so the
+# repository always shows recent activity, keeping collector.yml eligible to
+# keep running on schedule. As a second line of defense, it also explicitly
+# re-enables the collector workflow via the GitHub API in case it was
+# already disabled for some other reason.
+#
+# Do not remove this file unless you replace it with something else that
+# keeps the repository "active" at least once every ~60 days.
+on:
+  schedule:
+    # 1st of every month, 04:00 UTC. Well inside the 60-day window with
+    # margin to spare even if a run is delayed or occasionally skipped.
+    - cron: "0 4 1 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record heartbeat timestamp
+        run: |
+          mkdir -p .github
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-heartbeat.txt
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/last-heartbeat.txt
+          # `if <cmd>` is exempt from bash's errexit, unlike `<cmd> &&
+          # <cmd>` — needed here because "there IS a diff" (git diff
+          # --quiet exiting 1) is the expected case every month, not an
+          # error condition.
+          if git diff --cached --quiet; then
+            echo "No change, skipping commit."
+            exit 0
+          fi
+          git commit -m "chore: monthly heartbeat (keep scheduled workflows active)"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-enable the collector workflow (belt and braces)
+        # Whether a bot-authored commit resets GitHub's 60-day inactivity
+        # clock is not clearly documented, so this step does not rely on
+        # that alone: it explicitly re-enables collector.yml through the
+        # API every month. A no-op if it's already enabled. continue-on-error
+        # so a GitHub API change here can never break the commit step above.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method PUT \
+            "repos/${{ github.repository }}/actions/workflows/collector.yml/enable"
