@@ -13,12 +13,33 @@ create table if not exists content_items (
     raw_text text,
     image_url text,
 
-    summary_en text,
     title_he text,
     summary_he text,
 
+    -- The Pass 2 (publication text) output. Serves BOTH the newsletter and the
+    -- website copy-paste block — there is one accessible Hebrew publication
+    -- text, not two. Michal edits it in place in the dashboard, so there is
+    -- deliberately no separate `reviewed_` counterpart: the edited text IS
+    -- the text. "Needs generating" is expressed as `review_status = 'approved'`
+    -- AND this column being NULL — no extra status field is needed.
+    newsletter_text_he text,
+
+    -- 'processing' is intentionally never written by the Processor (see
+    -- docs/db_contract.md) — a mid-article status would only guard against
+    -- concurrent workers, which cannot happen here, while risking an article
+    -- getting stuck in it forever if a run dies mid-write. Kept in the check
+    -- constraint only so this is not a live state a future reader should
+    -- expect to see or design around.
     processing_status text not null default 'pending'
         check (processing_status in ('pending', 'processing', 'done', 'failed')),
+
+    -- How many times Pass 1 (triage) has attempted this article. Without this,
+    -- a failed Gemini call (transient network error, quota blip) sets
+    -- processing_status='failed' and the article is never retried — lost
+    -- permanently and silently. The Processor retries a 'failed' article up
+    -- to 3 times across runs, then gives up — bounded so a genuinely
+    -- malformed article cannot spin forever.
+    processing_attempts integer not null default 0,
 
     review_status text not null default 'not_reviewed'
         check (review_status in ('not_reviewed', 'approved', 'irrelevant', 'needs_edit')),
@@ -34,7 +55,6 @@ create table if not exists content_items (
     reviewed_by text,
     reviewed_at timestamptz,
 
-    wordpress_post_id text,
     newsletter_batch_id text,
     published_to_website_at timestamptz,
     published_to_newsletter_at timestamptz,

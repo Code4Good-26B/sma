@@ -5,8 +5,10 @@ This folder contains the database setup files for the SMA news automation projec
 The database is used as the shared state between the system components:
 
 ```text
-Collector -> DB -> Processor -> DB -> Dashboard -> DB -> Publisher -> DB
+Collector -> DB -> Processor (triage) -> DB -> Dashboard (review) -> DB -> Processor (publication text) -> DB -> Dashboard (publish)
 ```
+
+There is no separate Publisher service — "publishing" is the Dashboard itself, run by Michal in her browser, generating a newsletter file or a website copy-paste block. See `docs/db_contract.md` for the full detail.
 
 For the full database contract, field ownership, statuses, and component responsibilities, see:
 
@@ -23,6 +25,7 @@ docs/db_contract.md
 - `reset.sql` - Drops `content_items` and `collector_runs` entirely. Used together with `schema.sql` to apply schema changes to a dev database (see below).
 - `check.sql` - Quick inspection queries, including a Collector health check, for development and testing.
 - `retention_policy.sql` - Defines how old heavy fields are cleaned to keep the database small.
+- `migrations/` - One-off `ALTER`-statement scripts for applying additive schema changes to a database that already holds real data, without wiping it (see below). Not a migration framework — just plain SQL, run by hand.
 - `README.md` - Explains how to use the database setup files.
 
 ---
@@ -50,6 +53,20 @@ To apply a schema change (new/removed columns, new constraints, etc.) to an exis
 2. Run `schema.sql`.
 
 **This destroys all data.** `reset.sql` drops the tables entirely (not just their rows), because `TRUNCATE` preserves the old table structure and cannot apply a schema change. Only do this against disposable test data — never against a database anyone depends on for real data.
+
+---
+
+## Applying an additive schema change WITHOUT wiping data
+
+The instructions above are for a database with nothing worth keeping. That stopped being true once the Collector started running daily on GitHub Actions: the live database now holds real collected articles, and `reset.sql` would permanently lose any article that has since fallen outside the Collector's lookback window.
+
+For a change that is purely additive (a new column, a dropped-but-unused column) rather than a structural rewrite, apply it in place instead:
+
+1. Write a one-off script of plain `ALTER TABLE` statements and save it under `db/migrations/` (see e.g. `db/migrations/2026-09_processor_columns.sql`).
+2. Run it once, by hand, in the Supabase SQL editor, against the live database.
+3. Update `schema.sql` to match, so it stays the source of truth for what a fresh database looks like.
+
+This is **not** a migration framework — there is no runner, no version table, no numbering convention to follow beyond a descriptive filename. It's a plain SQL script for a specific, one-time change. `reset.sql` + `schema.sql` remains the right approach for a fresh or disposable database.
 
 ---
 
