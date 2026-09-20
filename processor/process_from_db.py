@@ -171,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     succeeded = 0
     failed = 0
     retries = 0
+    exhausted = 0
+    exhausted_ids: list[str] = []
 
     try:
         with conn.cursor() as cur:
@@ -247,6 +249,22 @@ def main(argv: list[str] | None = None) -> int:
                                 status=status, error_message=error_message)
                 conn.commit()
                 print(f"  Saved to DB — status={status}")
+
+                # Only count this as a consumed attempt if the increment
+                # actually persisted. If the DB write itself fails (below),
+                # the transaction rolls back, processing_attempts keeps its
+                # original value, and the article is retried next run with
+                # attempts unchanged — not exhausted.
+                if status != "done" and row["processing_attempts"] + 1 >= MAX_PROCESSING_ATTEMPTS:
+                    # This was the article's last possible attempt: after
+                    # this, _fetch_eligible's `processing_attempts < 3`
+                    # condition excludes it forever. Unlike an ordinary
+                    # failure (picked up again tomorrow), this is permanent
+                    # — the article silently stops existing for Michal —
+                    # so it is always worth an email, even if other
+                    # articles in this same run succeeded.
+                    exhausted += 1
+                    exhausted_ids.append(article_id)
             except Exception as e:
                 conn.rollback()
                 print(f"  ERROR: Failed to save to DB: {e}", file=sys.stderr)
@@ -271,8 +289,38 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Succeeded : {succeeded}")
     print(f"Failed    : {failed}")
     print(f"Retries   : {retries}")
+    print(f"Exhausted : {exhausted}" + (f" ({', '.join(exhausted_ids)})" if exhausted_ids else ""))
 
-    return 0 if failed == 0 else 1
+    # Exit code is the only signal this project has when it runs unattended, so it
+    # must mean "a human needs to look at this", not "one article had a bad day".
+    #
+    #   failed > 0 while succeeded > 0  -> partial. The failed articles are picked
+    #     up by the next daily run (the DB query is itself the retry), so this is
+    #     a normal, self-correcting outcome and exits 0.
+    #   failed > 0 and succeeded == 0   -> nothing worked at all. Almost always a
+    #     systemic cause (bad key, API down, DB unreachable), so exit 1.
+    #
+    # Pass 1 has one more case beyond that: an article that fails its final
+    # attempt (processing_attempts reaches MAX_PROCESSING_ATTEMPTS) is never
+    # retried again — a permanent loss, not a self-healing one — so it forces
+    # exit 1 even when every other article in the run succeeded.
+    if exhausted > 0:
+        print(
+            f"ALERT: {exhausted} article(s) exhausted all {MAX_PROCESSING_ATTEMPTS} "
+            f"attempts and will never be retried: {', '.join(exhausted_ids)}"
+        )
+        return 1
+
+    if failed > 0 and succeeded == 0:
+        return 1
+
+    if failed > 0:
+        print(
+            f"NOTE: {failed} article(s) failed but {succeeded} succeeded — exiting 0. "
+            f"Failed articles are retried by the next run."
+        )
+
+    return 0
 
 
 if __name__ == "__main__":

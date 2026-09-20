@@ -8,30 +8,56 @@ Two GitHub Actions workflows live in `.github/workflows/`.
 
 ---
 
-## `collector.yml` — runs the Collector daily
+## `daily.yml` — runs the whole daily chain
 
 - **Schedule:** every day at 05:00 UTC (08:00 Israel time).
-- **Manual run:** open the **Actions** tab → **Collector** → **Run workflow**. Use this
-  any time you want to check "is this still working?" without waiting for the next
-  scheduled run.
-- **What it does:** installs the Python dependencies from `requirements.txt` and runs
-  `python collector/main.py` — the entire Collector pipeline in one command. It
-  scrapes each configured news source, checks the database for articles already
-  collected, downloads only the new ones, and inserts them.
-- **If it fails:** the job exits non-zero and GitHub automatically emails the
-  repository's admins. That email is the only automatic failure signal this project
-  has — please don't ignore it.
+- **Manual run:** open the **Actions** tab → **Daily pipeline** → **Run workflow**.
+  Use this any time you want to check "is this still working?" without waiting for
+  the next scheduled run.
+- **What it does:** installs the Python dependencies from `requirements.txt`, then
+  runs three steps in order, every day:
+  1. **Collect new articles** (`python collector/main.py`) — scrapes each configured
+     news source, checks the database for articles already collected, downloads only
+     the new ones, and inserts them.
+  2. **Summarize new articles (Pass 1)** (`python processor/process_from_db.py
+     --limit 10`) — generates a Hebrew title and short summary for newly collected
+     articles, so Michal can decide "interesting or not" in the dashboard.
+  3. **Write newsletter texts (Pass 2)** (`python processor/process_newsletter_text.py
+     --limit 10`) — generates the full Hebrew publication text for articles Michal has
+     already approved.
+- **Steps 2 and 3 run even if an earlier step failed.** Pass 1 processes whatever is
+  already waiting in the database — including articles from previous days — and
+  Pass 2 processes whatever Michal has already approved, independent of whether
+  today's collection succeeded. A failure in step 1 still fails the overall job (and
+  still sends the email), it just doesn't block the other two from doing their part.
+- **The `--limit 10` on steps 2 and 3 is deliberate, not a typo.** The Gemini free
+  tier allows roughly 20 requests/day *per model*. Normal load is 1-2 articles a day,
+  so this limit is invisible in practice. But if the pipeline has been broken for a
+  while, the Collector's 14-day lookback can hand Pass 1 (or an approval backlog can
+  hand Pass 2) far more than 10 articles in one run. Without a limit, that single run
+  would exhaust the day's quota and fail loudly; with it, 10 get processed, the run
+  exits cleanly, and the rest are simply still eligible tomorrow — the backlog drains
+  over a few days instead of failing in one.
 
-### The one required secret
+### The two required secrets
 
-The Collector needs exactly one secret: **`DATABASE_URL`**, the Postgres connection
-string for the Supabase database (same value as the `DATABASE_URL` in a local `.env`
-file).
+The pipeline needs two secrets:
 
-To set it: **Settings → Secrets and variables → Actions → New repository secret**,
-name `DATABASE_URL`.
+- **`DATABASE_URL`** — the Postgres connection string for the Supabase database
+  (same value as in a local `.env` file). Required by all three steps.
+- **`GEMINI_API_KEY`** — the Gemini API key used by both processor passes.
 
-Without this secret, every run of `collector.yml` will fail immediately.
+To set either: **Settings → Secrets and variables → Actions → New repository
+secret**.
+
+**What breaks if one is missing:**
+
+- Without `DATABASE_URL`, every step fails immediately (the Collector and both
+  processor passes all need the database).
+- Without `GEMINI_API_KEY`, **both processor steps fail immediately with a clear
+  "GEMINI_API_KEY is not set" error, while the Collector step still succeeds** —
+  collection doesn't need Gemini at all, only summarizing and writing publication
+  text do.
 
 ---
 
@@ -41,40 +67,71 @@ Without this secret, every run of `collector.yml` will fail immediately.
 
 GitHub automatically **disables a scheduled workflow after 60 days with no
 repository activity**. This project is handed over with no ongoing maintainer, so
-nobody will be pushing commits — which means, without a countermeasure, the Collector
-schedule would silently stop working around month three, and nobody would notice.
+nobody will be pushing commits — which means, without a countermeasure, the daily
+pipeline's schedule would silently stop working around month three, and nobody would
+notice.
 
 `heartbeat.yml` exists purely to prevent that. Once a month it:
 
 1. Writes the current UTC timestamp to `.github/last-heartbeat.txt` and commits it —
    a small, harmless change whose only job is to keep the repository "active" in
    GitHub's eyes.
-2. As a second line of defense, explicitly re-enables the Collector workflow through
+2. As a second line of defense, explicitly re-enables the `daily.yml` workflow through
    the GitHub API, in case it was ever disabled for some other reason.
 
-**It is not a health check.** It does not verify the Collector is working — only that
+**It is not a health check.** It does not verify the pipeline is working — only that
 the schedule mechanism stays turned on. Do not delete this file thinking it's
-pointless busywork; deleting it will cause the Collector to stop running roughly two
-months later, silently.
+pointless busywork; deleting it will cause the daily pipeline to stop running roughly
+two months later, silently.
 
-### If the Collector workflow is ever found disabled anyway
+### If the daily pipeline workflow is ever found disabled anyway
 
-Go to the **Actions** tab → **Collector** (in the left sidebar) → there will be a
-banner saying the workflow is disabled → click **Enable workflow**. That's the entire
-fix — one click.
+Go to the **Actions** tab → **Daily pipeline** (in the left sidebar) → there will be
+a banner saying the workflow is disabled → click **Enable workflow**. That's the
+entire fix — one click.
 
 ---
 
-## How to check whether the Collector is actually working
+## What a failure email means (and doesn't mean)
+
+Every step's exit code is written to mean "a human needs to look at this" — not "one
+article had a bad day". Concretely:
+
+- **A partial run is NOT an email.** If some articles succeed and others fail in the
+  same run, that's treated as normal and self-correcting: a failed Pass 1 article is
+  automatically retried on a later run (up to 3 attempts total), and a failed Pass 2
+  article is retried indefinitely (it simply still has no publication text, so it's
+  picked up again tomorrow). The log will show a `NOTE:` line explaining this, but
+  the job exits 0 and no email is sent.
+- **An email means one of two things:**
+  1. **Nothing succeeded at all** in a step that had work to do — almost always a
+     systemic cause: a revoked or missing API key, Gemini being down, the database
+     being unreachable. Something is actually broken, not just one bad article.
+  2. **An article exhausted all 3 Pass 1 attempts.** Unlike an ordinary failure, this
+     is permanent — that article will never be picked up again, and Michal will never
+     see it — so it forces the email even if every other article in that run
+     succeeded. (Pass 2 has no such case: its retry is unlimited, so nothing is ever
+     permanently lost there.)
+
+The reasoning behind this: the failure email is the *only* automatic signal this
+project has once handed over. If it fired on conditions that fix themselves tomorrow,
+whoever inherits this project would learn to ignore it within a month — and then the
+alert that actually matters would be invisible too.
+
+---
+
+## How to check whether the pipeline is actually working
 
 Two ways, and you don't need to be technical for the first one:
 
-1. **Actions tab → Collector → run history.** Green checkmark = that run succeeded.
-   Red X = it failed (and an email should already have gone out).
-2. **The `collector_runs` database table.** Every run — scheduled or manual — writes
-   a row here with its status, how many articles it found, and how many it inserted.
-   Run the health query at the top of [`db/check.sql`](../db/check.sql) to see the
-   most recent run at a glance, or see the "Health monitoring" section of
+1. **Actions tab → Daily pipeline → run history.** Green checkmark = that run
+   succeeded (or had only self-healing partial failures). Red X = something needs
+   attention (and an email should already have gone out).
+2. **The `collector_runs` database table** (Collector only — the two processor passes
+   don't have an equivalent table yet). Every Collector run — scheduled or manual —
+   writes a row here with its status, how many articles it found, and how many it
+   inserted. Run the health query at the top of [`db/check.sql`](../db/check.sql) to
+   see the most recent run at a glance, or see the "Health monitoring" section of
    [`docs/db_contract.md`](../docs/db_contract.md) for what the different statuses
    mean. A run that finds zero new articles and reports `success` is normal — quiet
    weeks happen.
@@ -85,6 +142,6 @@ Two ways, and you don't need to be technical for the first one:
 
 | File | Why it matters |
 |---|---|
-| `workflows/collector.yml` | The actual daily job. |
-| `workflows/heartbeat.yml` | Keeps `collector.yml`'s schedule from being auto-disabled after 60 days. |
+| `workflows/daily.yml` | The actual daily job: Collector, then Pass 1, then Pass 2. |
+| `workflows/heartbeat.yml` | Keeps `daily.yml`'s schedule from being auto-disabled after 60 days. |
 | `last-heartbeat.txt` | Written by `heartbeat.yml`; harmless, but don't remove the workflow that maintains it. |

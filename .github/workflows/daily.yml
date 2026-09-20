@@ -1,0 +1,97 @@
+name: Daily pipeline
+
+# Runs the whole daily chain: Collector -> Processor Pass 1 (triage) ->
+# Processor Pass 2 (publication text). The database (see db/schema.sql) is
+# the only durable state any of these need — there is no cache or JSON file
+# to restore between runs, so a fresh runner every day is fine.
+#
+# The workflow name above is what shows up in the subject line of GitHub's
+# failure email — the only automatic failure signal this project has once
+# handed over. Keep it describing the whole chain, not just one step, so
+# "Daily pipeline failed" sends whoever inherits this project to the right
+# place regardless of which of the three steps below actually broke.
+on:
+  schedule:
+    # 05:00 UTC = 08:00 Israel time (year-round; Israel's UTC+3 summer clock
+    # would make this 08:00 too, since cron here is always interpreted as
+    # UTC regardless of any daylight-saving change). GitHub Actions cron is
+    # always UTC, never the repository's local time.
+    # Note: GitHub may delay scheduled runs by several minutes under load —
+    # that's expected and fine, nothing here is time-sensitive.
+    - cron: "0 5 * * *"
+  # Lets a human trigger a run on demand from the Actions tab. This is how
+  # whoever inherits this project (with no other documentation to go on)
+  # can check "is this thing still working?" without waiting for tomorrow.
+  workflow_dispatch: {}
+
+# Prevent two runs of the whole chain from ever overlapping (e.g. a manual
+# trigger firing while the scheduled run is still in progress).
+concurrency:
+  group: daily-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # A job-level ceiling in case something outside the three steps below
+    # hangs (e.g. checkout or dependency install) — see the per-step
+    # timeouts below for why those matter more day to day.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect new articles
+        timeout-minutes: 15
+        env:
+          # shared/python/db_client.py reads this via os.getenv("DATABASE_URL")
+          # — its load_dotenv() call is a no-op here since no .env file
+          # exists on the runner, so a plain environment variable is enough.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python collector/main.py
+        # No `continue-on-error` here: main.py already returns a non-zero
+        # exit code on a 'failed' or 'partial' run, and that must fail this
+        # job so GitHub emails the repository admins.
+
+      - name: Summarize new articles (Pass 1)
+        # Pass 1 processes whatever is already `pending` in the database,
+        # which includes articles collected on previous days — not just
+        # today's. If a source site is down and the step above fails, Pass 1
+        # must still run and clear its backlog rather than being skipped.
+        # `!cancelled()` (not `always()`) so a step killed by its own
+        # timeout, or the job's, does not go on to start the next one.
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        # --limit 10, not cosmetic: the Gemini free tier is roughly 20
+        # requests/day *per model*. Normal load is 1-2 articles a day, so
+        # this never triggers in practice. But after, say, a two-week outage
+        # the 14-day lookback can hand Pass 1 thirty pending articles at
+        # once — unlimited, that single run would blow through the daily
+        # quota, start collecting 429s, and burn through every fallback
+        # candidate in MODEL_CANDIDATES one after another. With the limit,
+        # the run processes 10, exits cleanly, and the rest are simply still
+        # `pending` tomorrow — the backlog drains over a few days instead of
+        # failing loudly (and uselessly) in one.
+        run: python processor/process_from_db.py --limit 10
+
+      - name: Write newsletter texts (Pass 2)
+        # Same reasoning as Pass 1 above: this processes whatever Michal has
+        # already approved, independent of today's Collector or Pass 1
+        # outcome, so it must run even if an earlier step failed.
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        # Same quota reasoning as Pass 1's --limit 10 above.
+        run: python processor/process_newsletter_text.py --limit 10

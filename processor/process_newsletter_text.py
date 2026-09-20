@@ -265,7 +265,28 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Failed         : {failed}")
     print(f"Skipped (empty): {skipped_empty}")
 
-    return 0 if failed == 0 else 1
+    # Exit code is the only signal this project has when it runs unattended, so it
+    # must mean "a human needs to look at this", not "one article had a bad day".
+    #
+    #   failed > 0 while succeeded > 0  -> partial. The failed articles are picked
+    #     up by the next daily run (the DB query is itself the retry), so this is
+    #     a normal, self-correcting outcome and exits 0.
+    #   failed > 0 and succeeded == 0   -> nothing worked at all. Almost always a
+    #     systemic cause (bad key, API down, DB unreachable), so exit 1.
+    #
+    # Unlike Pass 1, there is no attempt counter here by design (see
+    # _fetch_eligible) — the retry is unlimited, so there is no permanent-loss
+    # case to force exit 1 the way an exhausted Pass 1 article does.
+    if failed > 0 and succeeded == 0:
+        return 1
+
+    if failed > 0:
+        print(
+            f"NOTE: {failed} article(s) failed but {succeeded} succeeded — exiting 0. "
+            f"Failed articles are retried by the next run."
+        )
+
+    return 0
 
 
 if __name__ == "__main__":
