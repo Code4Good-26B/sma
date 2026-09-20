@@ -140,6 +140,13 @@ edit `newsletter_text_he` directly in the Dashboard afterwards — there is
 deliberately no separate `reviewed_` counterpart for it, unlike the triage title
 and summary: the edited text simply IS the text.
 
+Unlike Pass 1, there is no `processing_attempts`-style retry counter for Pass 2:
+the selection query is itself the retry — an article whose Gemini call fails
+simply still matches the query on the next run. At this project's volume (roughly
+7 approved articles a month), a permanently-failing article costs one wasted API
+call per daily run, visible in the log, which is cheap enough not to warrant a
+dedicated column.
+
 ---
 
 ### Dashboard
