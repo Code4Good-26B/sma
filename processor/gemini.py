@@ -11,62 +11,58 @@ from typing import Any, Dict, List, Optional
 import certifi
 
 
-# Ordered by QUALITY, not availability — a change from an earlier version of
-# this list, and deliberate. Two days of live runs gave every one of these
-# four models a turn at being the worst performer:
+# Two separate lists, not one, because the two passes have different failure
+# tolerances and this observably matters for output quality:
 #
-#            day 1        day 2
-#   flash-latest   0/8          1/3
-#   3.6-flash      1/8          0/2
-#   3.5-flash      3/7          0/2
-#   3.7-flash      0/3          0/2
+#   Pass 1 (triage summaries): availability wins.
+#   Michal reads these only to decide "interesting or not", so a rougher
+#   summary still does its job — while a MISSING summary makes the article
+#   invisible to her, and Pass 1 has a hard deadline of
+#   MAX_PROCESSING_ATTEMPTS days before the article is lost for good. The
+#   lite tier is here because it demonstrably rescues articles when every
+#   full-flash model is returning 503 (observed live: two real articles one
+#   attempt from being lost, rescued by gemini-flash-lite-latest).
 #
-# Availability swings more, day to day, than any real difference between
-# these models — so ranking by "which one answered most yesterday" is
-# ranking on noise. When candidates can't be meaningfully separated by
-# availability, the sound criterion is quality: try the best model first,
-# and fall back only when the better ones are genuinely unreachable. Also
-# worth naming plainly: all four names above are labels on ONE congested
-# capacity pool on the free tier — a run of four consecutive 503s in a few
-# seconds is common, and no ordering of these four alone fixes that. This
-# is not a defect on our side; Google's own rate-limit docs say specified
-# limits are "not guaranteed", and paying Tier-2 customers report the same
-# 503s on Google's developer forum. The fix is to widen the chain across
-# genuinely different endpoints, which is what the lite tier below is for.
+#   Pass 2 (publication text): quality wins.
+#   This text IS the article families read in the association's newsletter —
+#   the community cannot read the English source, so this is not a teaser.
+#   Lite models were observed producing a garbled word, a Cyrillic character
+#   inside a Hebrew word, a mistranslation, and a number-agreement error
+#   across two short summaries, while full-flash output was clean; both
+#   prompts already forbid exactly these defects, and the lite models
+#   ignore it. Deliberately shorter, and that is affordable: Pass 2 has NO
+#   attempt limit. Its selection query (newsletter_text_he IS NULL)
+#   re-selects the article every run until it succeeds, and nobody is
+#   waiting on any particular day's output. If every full-flash model is
+#   busy today, there is simply no text today and there will be one
+#   tomorrow.
 #
-# 1. gemini-flash-latest — the full-flash alias. Newest full Flash, Google
-#    re-points it as models are released, and it can never 404 on
-#    retirement. Under a quality ordering this is the primary, not
-#    insurance — that was backwards in the previous version of this list.
-# 2-3. Explicit full-flash names, newest first — a safety net for the case
-#    where the alias itself misbehaves (observed: 0/8 on day 1). Pinned
-#    names will eventually be retired (404); the alias is Google
-#    maintaining freshness on our behalf, which is why it leads.
-# 4. gemini-flash-lite-latest — the flash-lite alias. Confirmed to exist via
-#    a live models-endpoint call (Part 0 of the task that added this
-#    comment) rather than assumed from documentation, which goes stale.
-# 5. An older explicit flash-lite name — the least popular endpoint of the
-#    five, and therefore the most likely to answer when everything above is
-#    congested.
-#
-# Including a lite model at all reverses an earlier decision to exclude
-# `-lite` on quality grounds. That reasoning had it backwards too: the
-# alternative to a lite-model summary is NO summary at all, not a better
-# one — and Michal reviews and edits every text in the dashboard before
-# anything is published, so she is the quality gate, not the model. The
-# log records which model produced each result, so a lite-generated text
-# is traceable after the fact if it ever needs a second look.
-#
-# Every name below was confirmed with a real generateContent call before
-# being added (a 404 here is a silently useless candidate — see Part 0).
-# If every candidate below ever fails with 404, Google's own error message
-# names the current replacement model — add it in the matching tier above.
-MODEL_CANDIDATES = [
+# Shared reasoning for both lists:
+# - The `-latest` alias leads: Google re-points it as models are released
+#   and it can never 404 on retirement, so under a quality ordering it is
+#   the primary, not insurance. Explicit pinned names after it are a safety
+#   net for the case where the alias itself misbehaves (observed: 0/8 on
+#   one day) — they will eventually be retired (404) themselves, which is
+#   exactly why the self-refreshing alias leads instead.
+# - Every name in both lists was confirmed with a real generateContent call
+#   before being added (a 404 here is a silently useless candidate).
+#   *-latest aliases were confirmed to exist via a live models-endpoint
+#   call rather than assumed from documentation, which goes stale.
+# - If every candidate in a list ever fails with 404, Google's own error
+#   message usually names the current replacement model — add it in the
+#   matching tier of the matching list. No other change needed.
+TRIAGE_MODEL_CANDIDATES = [
     "gemini-flash-latest",
     "gemini-3.8-flash",
     "gemini-3.7-flash",
     "gemini-flash-lite-latest",
     "gemini-3.1-flash-lite",
+]
+
+PUBLICATION_MODEL_CANDIDATES = [
+    "gemini-flash-latest",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
 ]
 
 MAX_CONTENT_CHARS = 12000
@@ -299,8 +295,9 @@ def _generate(
     api_key: str,
     model: Optional[str],
     timeout_seconds: int,
+    model_candidates: List[str],
 ) -> GeminiResult:
-    """Try MODEL_CANDIDATES in order for one prompt.
+    """Try model_candidates in order for one prompt.
 
     The default is to try the next candidate, unless another attempt
     cannot possibly help: either the failure is identical for every model
@@ -318,12 +315,13 @@ def _generate(
     short deny-list of "definitely won't help" is the safer default.
 
     If `model` is given explicitly, only that model is tried — no
-    fallback — so a specific model can still be tested deliberately.
+    fallback, and model_candidates is ignored — so a specific model can
+    still be tested deliberately.
     """
     if not api_key:
         return GeminiResult(outputs={}, error="GEMINI_API_KEY is not set.")
 
-    candidates: List[str] = [model] if model else list(MODEL_CANDIDATES)
+    candidates: List[str] = [model] if model else list(model_candidates)
 
     last_error = "No Gemini model candidates configured."
     for i, candidate in enumerate(candidates):
@@ -371,6 +369,7 @@ def generate_hebrew_outputs(
         build_prompt(article),
         expected_fields=("title_he", "summary_he"),
         api_key=api_key, model=model, timeout_seconds=timeout_seconds,
+        model_candidates=TRIAGE_MODEL_CANDIDATES,
     )
 
 
@@ -386,6 +385,7 @@ def generate_newsletter_text(
         build_newsletter_prompt(article),
         expected_fields=("newsletter_text_he",),
         api_key=api_key, model=model, timeout_seconds=timeout_seconds,
+        model_candidates=PUBLICATION_MODEL_CANDIDATES,
     )
 
 

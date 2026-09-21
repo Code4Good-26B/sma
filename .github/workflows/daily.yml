@@ -91,7 +91,7 @@ jobs:
         # the 14-day lookback can hand Pass 1 thirty pending articles at
         # once — unlimited, that single run would blow through the daily
         # quota, start collecting 429s, and burn through every fallback
-        # candidate in MODEL_CANDIDATES one after another. With the limit,
+        # candidate in TRIAGE_MODEL_CANDIDATES one after another. With the limit,
         # the run processes 10, exits cleanly, and the rest are simply still
         # `pending` tomorrow — the backlog drains over a few days instead of
         # failing loudly (and uselessly) in one.

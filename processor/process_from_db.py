@@ -45,7 +45,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor import __version__
-from processor.gemini import MODEL_CANDIDATES, generate_hebrew_outputs, mock_hebrew_outputs
+from processor.gemini import TRIAGE_MODEL_CANDIDATES, generate_hebrew_outputs, mock_hebrew_outputs
 
 # Pass 1 retries a 'failed' article this many times (across runs) before
 # giving up on it. Bounded so a genuinely malformed article cannot be
@@ -56,7 +56,7 @@ from processor.gemini import MODEL_CANDIDATES, generate_hebrew_outputs, mock_heb
 # of a service whose provider explicitly does not guarantee capacity
 # ("Specified rate limits are not guaranteed and actual capacity may
 # vary") — and live runs have shown multi-day 503 streaks across every
-# MODEL_CANDIDATES entry at once, so 72 hours is not always enough. The
+# TRIAGE_MODEL_CANDIDATES entry at once, so 72 hours is not always enough. The
 # Collector already answers this same question with LOOKBACK_DAYS = 14 in
 # collector/config.py, chosen so the system can be broken for two weeks
 # and lose nothing; the Processor's retry budget should match that
@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None, help="Max articles to process")
     parser.add_argument(
         "--model", default=None,
-        help="Gemini model name. Default: try MODEL_CANDIDATES in order (no fallback if given explicitly).",
+        help="Gemini model name. Default: try TRIAGE_MODEL_CANDIDATES in order (no fallback if given explicitly).",
     )
     args = parser.parse_args(argv)
 
@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
             print("No articles pending triage.")
             return 0
 
-        model_desc = args.model if args.model else " -> ".join(MODEL_CANDIDATES)
+        model_desc = args.model if args.model else " -> ".join(TRIAGE_MODEL_CANDIDATES)
         print(f"Found {len(rows)} article(s) to triage. Processor v{__version__} | model: {model_desc}")
 
         for i, row in enumerate(rows):

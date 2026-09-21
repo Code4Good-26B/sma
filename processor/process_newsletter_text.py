@@ -22,7 +22,7 @@ Optional flags:
     --delay N      Seconds to wait between Gemini calls (default 1.0)
     --limit N      Max number of articles to process (default: all eligible)
     --model NAME   Use exactly this Gemini model, no fallback (default: try
-                   MODEL_CANDIDATES in order)
+                   PUBLICATION_MODEL_CANDIDATES in order)
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor import __version__
-from processor.gemini import MODEL_CANDIDATES, generate_newsletter_text, mock_newsletter_text
+from processor.gemini import PUBLICATION_MODEL_CANDIDATES, generate_newsletter_text, mock_newsletter_text
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None, help="Max articles to process")
     parser.add_argument(
         "--model", default=None,
-        help="Gemini model name. Default: try MODEL_CANDIDATES in order (no fallback if given explicitly).",
+        help="Gemini model name. Default: try PUBLICATION_MODEL_CANDIDATES in order (no fallback if given explicitly).",
     )
     args = parser.parse_args(argv)
 
@@ -178,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
             print("No approved articles waiting for publication text.")
             return 0
 
-        model_desc = args.model if args.model else " -> ".join(MODEL_CANDIDATES)
+        model_desc = args.model if args.model else " -> ".join(PUBLICATION_MODEL_CANDIDATES)
         print(f"Found {len(rows)} article(s) needing publication text. Processor v{__version__} | model: {model_desc}")
 
         for i, row in enumerate(rows):

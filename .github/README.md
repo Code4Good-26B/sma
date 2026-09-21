@@ -130,9 +130,21 @@ alert that actually matters would be invisible too.
 ## If Gemini starts returning 404 for a model ("model X is no longer available")
 
 Both processor passes call Gemini through a short list of fallback model names in
-`processor/gemini.py` (`MODEL_CANDIDATES`). Google periodically retires specific
-model versions, which turns up in the log as an HTTP 404 for that name. **The fix
-is one line, not a redesign:**
+`processor/gemini.py` — but it's **two separate lists**, not one, because the two
+passes tolerate a weak result differently (see that file's top comment for the full
+reasoning):
+
+- `TRIAGE_MODEL_CANDIDATES` (Pass 1) — full-flash models, then flash-lite models.
+  Pass 1 only needs to survive; a rougher summary still lets Michal decide
+  "interesting or not", so the lite tier is included as a last resort.
+- `PUBLICATION_MODEL_CANDIDATES` (Pass 2) — full-flash models only, no lite tier.
+  This text is what families actually read in the newsletter, and lite models were
+  observed producing real errors (a garbled word, a stray Cyrillic character) that
+  full-flash output didn't. Pass 2 has no attempt limit, so it can simply wait for a
+  good model rather than settle for a worse one.
+
+Google periodically retires specific model versions, which turns up in the log as an
+HTTP 404 for that name. **The fix is one line, not a redesign:**
 
 1. The 404 error message from Google usually names the current replacement model
    directly — use that name.
@@ -141,15 +153,16 @@ is one line, not a redesign:**
    yourself (see `processor/gemini.py`'s top comment for what's currently verified;
    documentation pages go stale, this API call is always current) and look for a
    `flash` model with `generateContent` in `supportedGenerationMethods`.
-3. Add that name to `MODEL_CANDIDATES` in the matching tier (full-flash names near
-   the top, flash-lite names near the bottom) — nothing else needs to change. The
-   fallback logic, retry counts, and prompts are unaffected by which model names are
-   in the list.
+3. Add that name to whichever list (and tier within it) matches: `TRIAGE_MODEL_CANDIDATES`
+   if it's a Pass 1 404, `PUBLICATION_MODEL_CANDIDATES` if it's a Pass 2 404 — full-flash
+   names near the top of either list, flash-lite names near the bottom of
+   `TRIAGE_MODEL_CANDIDATES` only. Nothing else needs to change: the fallback logic,
+   retry counts, and prompts are unaffected by which model names are in either list.
 
 As of the check that added this note, both `gemini-flash-latest` (full model) and
-`gemini-flash-lite-latest` (lite model) exist as Google-maintained aliases that
-never 404 on retirement — that's why they anchor the two halves of the list. Verify
-this is still true with the API call above before assuming it.
+`gemini-flash-lite-latest` (lite model) exist as Google-maintained aliases that never
+404 on retirement — that's why each leads its respective list. Verify this is still
+true with the API call above before assuming it.
 
 ---
 
