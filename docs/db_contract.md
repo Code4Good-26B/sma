@@ -251,9 +251,11 @@ The Collector should:
 Allowed `status` values:
 
 - `running` — the run is in progress. A row that stays `running` (never gets `finished_at` set) means the process died mid-run. That is itself a useful signal that something is wrong.
-- `success` — every source completed without error. A run that finds zero new articles is still a success — quiet weeks are normal for a low-volume news source and must not be reported as a failure.
-- `partial` — at least one source failed and at least one source succeeded.
-- `failed` — the run could not complete.
+- `success` — no source errored and every insert that was attempted succeeded. A run that finds zero new articles is still a success — quiet weeks are normal for a low-volume news source and must not be reported as a failure.
+- `partial` — at least one source could not be reached (e.g. blocked with a 403, DNS failure, timeout), but at least one other source still worked. This is recorded so the dashboard can show, honestly, "nothing from SMA News Today since the 20th" — but it does **not** by itself fail the run's exit code or send a failure email, because a single source being unreachable is a self-correcting condition (the site may unblock tomorrow) rather than something broken in this project. `partial` is also used when every source reachable but at least one article failed to *insert* — see below.
+- `failed` — **every** configured source failed to be reached, or at least one article that was successfully downloaded could not be inserted into the database. The former usually means something environmental (network access, DNS); the latter points at the schema or the database itself, not at a flaky website, and does not fix itself by waiting. Either case exits non-zero and sends the failure email.
+
+**Status and exit code are two different decisions**, deliberately: `status` is what a human sees later when they go looking (the dashboard, the run history); the exit code is whether GitHub emails someone tonight. A source being unreachable is worth recording but not worth an email every morning for however long that site blocks the Collector — the same partial-vs-systemic split the two Processor passes use for their own exit codes. An insert failure is different (see above) and always triggers the email, even if it happened alongside sources that otherwise worked fine (i.e. even in a run recorded as `partial`).
 
 The Dashboard's health check is: the most recent row where `status in ('success', 'partial')`, and how long ago it finished. This is enough to tell a non-technical user "the collector is working" or "the collector has not run successfully in N days" without needing to understand the rest of the schema.
 

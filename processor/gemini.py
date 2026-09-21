@@ -11,29 +11,38 @@ from typing import Any, Dict, List, Optional
 import certifi
 
 
-# Google retires specific model versions on its own schedule, outside this
-# project's control. The `-latest` alias below keeps working across model
-# generations with no code change required, so it is tried first and the
-# list never goes stale on its own. The pinned entries after it are a
-# backstop for whatever happens to be unavailable at the moment — see the
-# fallback rule in _generate: nearly every failure moves on to the next
-# candidate, precisely so an outage on one model can't take the whole
-# pipeline down the way a strict allow-list once did (twice, in fact).
-# `gemini-2.5-flash` is not in this list: it is confirmed permanently
-# retired (404), so keeping it would only waste a call at the end of an
-# already-failing chain. No `-lite` variant is included, on purpose:
-# Michal publishes this text under the association's name, so quality
-# matters more than availability here. An article that fails today and
-# succeeds tomorrow is strictly better than a weaker text published
-# today — and nothing is lost by failing, since Pass 1 retries three
-# times and Pass 2 retries indefinitely (it re-selects any article still
-# missing its output). If every candidate below ever fails, Google's own
-# error message usually names the current replacement model — add it here.
+# Ordered by measured live availability, not by preference. A full-pipeline
+# run logged this per-model tally across 8 real articles:
+#
+#   gemini-flash-latest   8 attempts, 0 successes (503 every time)
+#   gemini-3.6-flash      8 attempts, 1 success
+#   gemini-3.5-flash      7 attempts, 3 successes
+#   gemini-3.7-flash      3 attempts, 0 successes
+#
+# gemini-flash-latest was originally placed first because it can never 404
+# when a named model is retired — that reasoning is still correct, but the
+# conclusion was backwards. It is the alias everyone on the free tier points
+# at, so it is also the most congested endpoint on that tier; putting it
+# first meant paying for that congestion on every single article, every day,
+# forever. Insurance against retirement belongs at the END of the chain: put
+# last, it still rescues the run on the day the three named models above are
+# all retired and start 404ing, at the one-time cost of three wasted calls
+# that day — far cheaper than an 0-for-8 tax paid daily. `gemini-2.5-flash`
+# is not in this list: it is confirmed permanently retired (404), so keeping
+# it would only waste a call at the end of an already-failing chain. No
+# `-lite` variant is included, on purpose: Michal publishes this text under
+# the association's name, so quality matters more than availability here —
+# an article that fails today and succeeds tomorrow is strictly better than
+# a weaker text published today, and nothing is lost by failing, since
+# Pass 1 retries three times and Pass 2 retries indefinitely (it re-selects
+# any article still missing its output). If every candidate below ever
+# fails, Google's own error message usually names the current replacement
+# model — add it before the alias at the bottom.
 MODEL_CANDIDATES = [
-    "gemini-flash-latest",   # alias — always current, never 404s on retirement
-    "gemini-3.6-flash",
     "gemini-3.5-flash",
+    "gemini-3.6-flash",
     "gemini-3.7-flash",
+    "gemini-flash-latest",   # insurance against retirement, not a primary — see above
 ]
 
 MAX_CONTENT_CHARS = 12000

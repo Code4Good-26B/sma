@@ -141,7 +141,18 @@ def collect_source(conn, source, since_date):
     try:
         since_str = str(since_date)
 
-        articles = fetch_from_rss(source, since_date)
+        try:
+            articles = fetch_from_rss(source, since_date)
+        except Exception as e:
+            # An RSS failure is only recoverable if this source also has an
+            # HTML path to fall back to. Without this guard, a source with
+            # html_fallback=True would never get its second chance the
+            # moment fetch_from_rss started raising instead of swallowing
+            # errors — a regression, not an improvement.
+            if not source.get("html_fallback"):
+                raise
+            print(f"  RSS failed ({e}) — trying HTML fallback...")
+            articles = []
 
         if not articles and source.get("html_fallback"):
             print("  RSS returned nothing — trying HTML fallback...")
@@ -293,10 +304,23 @@ def main():
         # source finish" but "did everything that was found make it in".
         has_problems = bool(source_errors) or insert_failures > 0
 
+        # Two separate questions, deliberately:
+        #   status     -> what goes into collector_runs, i.e. what the dashboard and
+        #                 the run history will show a human who goes looking.
+        #   exit code  -> whether GitHub emails somebody tonight.
+        #
+        # They are not the same. One source being unreachable while another works is
+        # worth RECORDING (the dashboard must be able to show "nothing from SMA News
+        # Today since the 20th") but is NOT worth an email every morning for however
+        # long that site blocks us — the same partial-vs-systemic rule the processor
+        # passes use. An insert failure is different: it means data that was
+        # successfully downloaded could not be stored, which points at the schema or
+        # the database rather than at a flaky website, and does not fix itself.
+        all_sources_failed = bool(details) and len(source_errors) == len(details)
+
         if not has_problems:
             status = "success"
-        elif items_inserted == 0:
-            # Nothing at all made it into the database this run.
+        elif all_sources_failed:
             status = "failed"
         else:
             status = "partial"
@@ -320,7 +344,7 @@ def main():
                 f"inserted={d['inserted']} insert_failed={d['insert_failed']} status={d['status']}"
             )
 
-        return 0 if status == "success" else 1
+        return 1 if (all_sources_failed or insert_failures > 0) else 0
 
     except Exception as e:
         # Something broke outside any single source's own error handling

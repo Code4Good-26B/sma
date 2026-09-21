@@ -30,6 +30,10 @@ _HEADERS = {
 _INVALID_ENTITY_RE = re.compile(r"&(?!(?:amp|lt|gt|apos|quot|#\d+|#x[0-9a-fA-F]+);)")
 
 
+class FeedFetchError(Exception):
+    """An RSS feed could not be fetched at all (HTTP error, timeout, DNS)."""
+
+
 def _fetch_raw_feed(url):
     """Fetch the raw RSS feed content, cleaning up invalid XML entities."""
     try:
@@ -38,8 +42,7 @@ def _fetch_raw_feed(url):
         cleaned = _INVALID_ENTITY_RE.sub("&amp;", resp.text)
         return cleaned.encode("utf-8")
     except Exception as e:
-        print(f"  [rss] HTTP error fetching {url}: {e}")
-        return None
+        raise FeedFetchError(f"Error fetching {url}: {e}") from e
 
 
 def fetch_from_rss(source, since_date):
@@ -48,7 +51,10 @@ def fetch_from_rss(source, since_date):
     Paginates through ?paged=N, stopping when the oldest article on a page
     is older than since_date, or when MAX_PAGES is reached.
 
-    Returns [] on failure so the caller can try an HTML fallback.
+    Returns [] when there's simply nothing to report (no rss_url configured,
+    or the feed legitimately has no matching entries). Raises FeedFetchError
+    if the feed cannot be reached at all on the first page — the caller
+    decides whether that's worth an HTML fallback or a hard source failure.
     """
     rss_url = source.get("rss_url")
     if not rss_url:
@@ -60,8 +66,17 @@ def fetch_from_rss(source, since_date):
     for page in range(1, MAX_PAGES + 1):
         page_url = rss_url if page == 1 else f"{rss_url}?paged={page}"
 
-        raw = _fetch_raw_feed(page_url)
-        if raw is None:
+        try:
+            raw = _fetch_raw_feed(page_url)
+        except FeedFetchError as e:
+            # Page 1 failing means the feed is unreachable — let this
+            # propagate so the run records a source error instead of
+            # silently reporting zero articles. A later page failing after
+            # we already have articles is not worth losing them over: stop
+            # paginating and keep what we have.
+            if not all_articles:
+                raise
+            print(f"  [rss] Stopping pagination after a feed error: {e}")
             break
 
         try:

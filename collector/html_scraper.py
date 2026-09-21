@@ -27,14 +27,17 @@ def _parse_sma_europe_date(date_text):
         return None
 
 
+class PageFetchError(Exception):
+    """A listing page could not be fetched at all (HTTP error, timeout, DNS)."""
+
+
 def _fetch_page(url):
     try:
         response = requests.get(url, headers=_HEADERS, timeout=10)
         response.raise_for_status()
         return BeautifulSoup(response.text, "lxml")
     except Exception as e:
-        print(f"  [html] Error fetching {url}: {e}")
-        return None
+        raise PageFetchError(f"Error fetching {url}: {e}") from e
 
 
 def _scrape_sma_europe(source, since_date):
@@ -45,8 +48,17 @@ def _scrape_sma_europe(source, since_date):
 
     for page in range(1, MAX_PAGES + 1):
         url = f"{base_url}/news" if page == 1 else f"{base_url}/news/page/{page}"
-        soup = _fetch_page(url)
-        if soup is None:
+        try:
+            soup = _fetch_page(url)
+        except PageFetchError as e:
+            # Page 1 failing means the source is unreachable — let this
+            # propagate so the run records a source error instead of
+            # silently reporting zero articles. A later page failing after
+            # we already have articles is not worth losing them over: stop
+            # paginating and keep what we have.
+            if not all_articles:
+                raise
+            print(f"  [html] Stopping pagination after a page error: {e}")
             break
 
         page_articles = []
@@ -130,8 +142,17 @@ def _scrape_sma_news_today(source):
             if page == 1
             else f"https://smanewstoday.com/category/news/page/{page}/"
         )
-        soup = _fetch_page(url)
-        if soup is None:
+        try:
+            soup = _fetch_page(url)
+        except PageFetchError as e:
+            # Page 1 failing means the source is unreachable — let this
+            # propagate so the run records a source error instead of
+            # silently reporting zero articles. A later page failing after
+            # we already have articles is not worth losing them over: stop
+            # paginating and keep what we have.
+            if not all_articles:
+                raise
+            print(f"  [html] Stopping pagination after a page error: {e}")
             break
 
         page_articles = []
