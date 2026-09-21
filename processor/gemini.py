@@ -11,38 +11,62 @@ from typing import Any, Dict, List, Optional
 import certifi
 
 
-# Ordered by measured live availability, not by preference. A full-pipeline
-# run logged this per-model tally across 8 real articles:
+# Ordered by QUALITY, not availability — a change from an earlier version of
+# this list, and deliberate. Two days of live runs gave every one of these
+# four models a turn at being the worst performer:
 #
-#   gemini-flash-latest   8 attempts, 0 successes (503 every time)
-#   gemini-3.6-flash      8 attempts, 1 success
-#   gemini-3.5-flash      7 attempts, 3 successes
-#   gemini-3.7-flash      3 attempts, 0 successes
+#            day 1        day 2
+#   flash-latest   0/8          1/3
+#   3.6-flash      1/8          0/2
+#   3.5-flash      3/7          0/2
+#   3.7-flash      0/3          0/2
 #
-# gemini-flash-latest was originally placed first because it can never 404
-# when a named model is retired — that reasoning is still correct, but the
-# conclusion was backwards. It is the alias everyone on the free tier points
-# at, so it is also the most congested endpoint on that tier; putting it
-# first meant paying for that congestion on every single article, every day,
-# forever. Insurance against retirement belongs at the END of the chain: put
-# last, it still rescues the run on the day the three named models above are
-# all retired and start 404ing, at the one-time cost of three wasted calls
-# that day — far cheaper than an 0-for-8 tax paid daily. `gemini-2.5-flash`
-# is not in this list: it is confirmed permanently retired (404), so keeping
-# it would only waste a call at the end of an already-failing chain. No
-# `-lite` variant is included, on purpose: Michal publishes this text under
-# the association's name, so quality matters more than availability here —
-# an article that fails today and succeeds tomorrow is strictly better than
-# a weaker text published today, and nothing is lost by failing, since
-# Pass 1 retries three times and Pass 2 retries indefinitely (it re-selects
-# any article still missing its output). If every candidate below ever
-# fails, Google's own error message usually names the current replacement
-# model — add it before the alias at the bottom.
+# Availability swings more, day to day, than any real difference between
+# these models — so ranking by "which one answered most yesterday" is
+# ranking on noise. When candidates can't be meaningfully separated by
+# availability, the sound criterion is quality: try the best model first,
+# and fall back only when the better ones are genuinely unreachable. Also
+# worth naming plainly: all four names above are labels on ONE congested
+# capacity pool on the free tier — a run of four consecutive 503s in a few
+# seconds is common, and no ordering of these four alone fixes that. This
+# is not a defect on our side; Google's own rate-limit docs say specified
+# limits are "not guaranteed", and paying Tier-2 customers report the same
+# 503s on Google's developer forum. The fix is to widen the chain across
+# genuinely different endpoints, which is what the lite tier below is for.
+#
+# 1. gemini-flash-latest — the full-flash alias. Newest full Flash, Google
+#    re-points it as models are released, and it can never 404 on
+#    retirement. Under a quality ordering this is the primary, not
+#    insurance — that was backwards in the previous version of this list.
+# 2-3. Explicit full-flash names, newest first — a safety net for the case
+#    where the alias itself misbehaves (observed: 0/8 on day 1). Pinned
+#    names will eventually be retired (404); the alias is Google
+#    maintaining freshness on our behalf, which is why it leads.
+# 4. gemini-flash-lite-latest — the flash-lite alias. Confirmed to exist via
+#    a live models-endpoint call (Part 0 of the task that added this
+#    comment) rather than assumed from documentation, which goes stale.
+# 5. An older explicit flash-lite name — the least popular endpoint of the
+#    five, and therefore the most likely to answer when everything above is
+#    congested.
+#
+# Including a lite model at all reverses an earlier decision to exclude
+# `-lite` on quality grounds. That reasoning had it backwards too: the
+# alternative to a lite-model summary is NO summary at all, not a better
+# one — and Michal reviews and edits every text in the dashboard before
+# anything is published, so she is the quality gate, not the model. The
+# log records which model produced each result, so a lite-generated text
+# is traceable after the fact if it ever needs a second look.
+#
+# Every name below was confirmed with a real generateContent call before
+# being added (a 404 here is a silently useless candidate — see Part 0).
+# If every candidate below ever fails with 404, Google's own error message
+# names the current replacement model — add it in the matching tier above.
 MODEL_CANDIDATES = [
-    "gemini-3.5-flash",
-    "gemini-3.6-flash",
+    "gemini-flash-latest",
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
-    "gemini-flash-latest",   # insurance against retirement, not a primary — see above
+    "gemini-flash-lite-latest",
+    "gemini-3.1-flash-lite",
 ]
 
 MAX_CONTENT_CHARS = 12000

@@ -51,7 +51,22 @@ from processor.gemini import MODEL_CANDIDATES, generate_hebrew_outputs, mock_heb
 # giving up on it. Bounded so a genuinely malformed article cannot be
 # retried forever, while a transient failure (network error, API quota
 # blip) no longer silently loses an article on the first bad attempt.
-MAX_PROCESSING_ATTEMPTS = 3
+#
+# 14, not 3: three attempts gives an article 72 hours to survive an outage
+# of a service whose provider explicitly does not guarantee capacity
+# ("Specified rate limits are not guaranteed and actual capacity may
+# vary") — and live runs have shown multi-day 503 streaks across every
+# MODEL_CANDIDATES entry at once, so 72 hours is not always enough. The
+# Collector already answers this same question with LOOKBACK_DAYS = 14 in
+# collector/config.py, chosen so the system can be broken for two weeks
+# and lose nothing; the Processor's retry budget should match that
+# tolerance rather than contradict it with a shorter one. The cost is
+# negligible: a genuinely unprocessable article spends four fast calls a
+# day for two weeks, against a free-tier allowance of roughly 20
+# requests/day *per model* — and then still raises the ALERT and sends
+# the email, only later and with far more confidence the failure is real
+# rather than a bad week at Google.
+MAX_PROCESSING_ATTEMPTS = 14
 
 
 # ---------------------------------------------------------------------------
@@ -257,8 +272,8 @@ def main(argv: list[str] | None = None) -> int:
                 # attempts unchanged — not exhausted.
                 if status != "done" and row["processing_attempts"] + 1 >= MAX_PROCESSING_ATTEMPTS:
                     # This was the article's last possible attempt: after
-                    # this, _fetch_eligible's `processing_attempts < 3`
-                    # condition excludes it forever. Unlike an ordinary
+                    # this, _fetch_eligible's `processing_attempts <
+                    # MAX_PROCESSING_ATTEMPTS` condition excludes it forever. Unlike an ordinary
                     # failure (picked up again tomorrow), this is permanent
                     # — the article silently stops existing for Michal —
                     # so it is always worth an email, even if other

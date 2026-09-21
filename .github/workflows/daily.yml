@@ -12,13 +12,26 @@ name: Daily pipeline
 # place regardless of which of the three steps below actually broke.
 on:
   schedule:
-    # 05:00 UTC = 08:00 Israel time (year-round; Israel's UTC+3 summer clock
-    # would make this 08:00 too, since cron here is always interpreted as
-    # UTC regardless of any daylight-saving change). GitHub Actions cron is
-    # always UTC, never the repository's local time.
-    # Note: GitHub may delay scheduled runs by several minutes under load —
-    # that's expected and fine, nothing here is time-sensitive.
-    - cron: "0 5 * * *"
+    # This requests 05:00 UTC (08:00 Israel time year-round; Israel's UTC+3
+    # summer clock would make this 08:00 too, since cron here is always UTC
+    # regardless of any daylight-saving change — never the repository's
+    # local time). What GitHub actually does with that request is a
+    # different matter: measured from collector_runs, this schedule has
+    # started 4h29m and 5h18m late on two separate days. GitHub does not
+    # guarantee scheduled-run start times and delays them under load,
+    # sometimes by hours, not minutes. Nothing in this project is
+    # time-sensitive, so this costs nothing — but do not trust a comment
+    # (including this one, if it goes stale) or the cron expression itself
+    # to tell you when the run actually starts; check collector_runs or the
+    # Actions run history for that.
+    #
+    # The minute is offset from :00 below as a cheap experiment, not a fix:
+    # GitHub's own docs say scheduled-run load concentrates at the top of
+    # the hour, so an off-the-hour minute might reduce queuing delay. Given
+    # the observed delay is measured in hours, a minute offset may well
+    # make no measurable difference — this is worth trying because it costs
+    # nothing, not because it is expected to solve the problem above.
+    - cron: "17 5 * * *"
   # Lets a human trigger a run on demand from the Actions tab. This is how
   # whoever inherits this project (with no other documentation to go on)
   # can check "is this thing still working?" without waiting for tomorrow.

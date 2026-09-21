@@ -71,7 +71,7 @@ of what's collected).
 
 Reads:
 
-- `content_items` where `processing_status = 'pending' OR (processing_status = 'failed' AND processing_attempts < 3)`
+- `content_items` where `processing_status = 'pending' OR (processing_status = 'failed' AND processing_attempts < 14)`
 
 Updates:
 
@@ -114,9 +114,13 @@ When triage fails, Pass 1 should update:
 - `processing_attempts` incremented
 
 A `'failed'` article is retried by Pass 1 on a later run as long as
-`processing_attempts < 3`. This bounds retries so a genuinely malformed article
+`processing_attempts < 14`. This bounds retries so a genuinely malformed article
 cannot be retried forever, while a transient failure (network error, API quota
-blip) no longer silently loses an article on the first bad attempt.
+blip) no longer silently loses an article on the first bad attempt. 14, not a
+smaller number, because Gemini's free tier does not guarantee capacity and live
+runs have shown multi-day 503 streaks across every fallback model at once — the
+budget is deliberately matched to the Collector's own `LOOKBACK_DAYS = 14`, so
+the Processor can survive exactly as long an outage as the Collector can.
 
 #### Pass 2 — publication text
 
@@ -295,7 +299,7 @@ New items should be inserted with:
 
 Pass 1 reads items where:
 
-- `processing_status = 'pending' OR (processing_status = 'failed' AND processing_attempts < 3)`
+- `processing_status = 'pending' OR (processing_status = 'failed' AND processing_attempts < 14)`
 
 It does not set `processing_status = 'processing'` — see the note in "Component
 ownership > Processor > Pass 1" above for why that status is reserved but

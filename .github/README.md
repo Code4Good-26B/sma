@@ -10,7 +10,12 @@ Two GitHub Actions workflows live in `.github/workflows/`.
 
 ## `daily.yml` — runs the whole daily chain
 
-- **Schedule:** every day at 05:00 UTC (08:00 Israel time).
+- **Schedule:** requested for 05:17 UTC daily (08:17 Israel time). GitHub does not
+  guarantee scheduled-run start times — measured start times have been 4-5 hours
+  later than requested on separate days. Nothing in this project is time-sensitive,
+  so this doesn't matter in practice; don't rely on it starting near the requested
+  time. Check `collector_runs` or the Actions run history for when a run actually
+  happened.
 - **Manual run:** open the **Actions** tab → **Daily pipeline** → **Run workflow**.
   Use this any time you want to check "is this still working?" without waiting for
   the next scheduled run.
@@ -99,15 +104,17 @@ article had a bad day". Concretely:
 
 - **A partial run is NOT an email.** If some articles succeed and others fail in the
   same run, that's treated as normal and self-correcting: a failed Pass 1 article is
-  automatically retried on a later run (up to 3 attempts total), and a failed Pass 2
-  article is retried indefinitely (it simply still has no publication text, so it's
-  picked up again tomorrow). The log will show a `NOTE:` line explaining this, but
-  the job exits 0 and no email is sent.
+  automatically retried on a later run (up to 14 attempts total — chosen to match the
+  Collector's own 14-day lookback, since Gemini's free tier does not guarantee
+  capacity and live runs have shown multi-day outages across every fallback model at
+  once), and a failed Pass 2 article is retried indefinitely (it simply still has no
+  publication text, so it's picked up again tomorrow). The log will show a `NOTE:`
+  line explaining this, but the job exits 0 and no email is sent.
 - **An email means one of two things:**
   1. **Nothing succeeded at all** in a step that had work to do — almost always a
      systemic cause: a revoked or missing API key, Gemini being down, the database
      being unreachable. Something is actually broken, not just one bad article.
-  2. **An article exhausted all 3 Pass 1 attempts.** Unlike an ordinary failure, this
+  2. **An article exhausted all 14 Pass 1 attempts.** Unlike an ordinary failure, this
      is permanent — that article will never be picked up again, and Michal will never
      see it — so it forces the email even if every other article in that run
      succeeded. (Pass 2 has no such case: its retry is unlimited, so nothing is ever
@@ -117,6 +124,32 @@ The reasoning behind this: the failure email is the *only* automatic signal this
 project has once handed over. If it fired on conditions that fix themselves tomorrow,
 whoever inherits this project would learn to ignore it within a month — and then the
 alert that actually matters would be invisible too.
+
+---
+
+## If Gemini starts returning 404 for a model ("model X is no longer available")
+
+Both processor passes call Gemini through a short list of fallback model names in
+`processor/gemini.py` (`MODEL_CANDIDATES`). Google periodically retires specific
+model versions, which turns up in the log as an HTTP 404 for that name. **The fix
+is one line, not a redesign:**
+
+1. The 404 error message from Google usually names the current replacement model
+   directly — use that name.
+2. If it doesn't, confirm the current model names by calling
+   `https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY`
+   yourself (see `processor/gemini.py`'s top comment for what's currently verified;
+   documentation pages go stale, this API call is always current) and look for a
+   `flash` model with `generateContent` in `supportedGenerationMethods`.
+3. Add that name to `MODEL_CANDIDATES` in the matching tier (full-flash names near
+   the top, flash-lite names near the bottom) — nothing else needs to change. The
+   fallback logic, retry counts, and prompts are unaffected by which model names are
+   in the list.
+
+As of the check that added this note, both `gemini-flash-latest` (full model) and
+`gemini-flash-lite-latest` (lite model) exist as Google-maintained aliases that
+never 404 on retirement — that's why they anchor the two halves of the list. Verify
+this is still true with the API call above before assuming it.
 
 ---
 

@@ -141,6 +141,7 @@ def collect_source(conn, source, since_date):
     try:
         since_str = str(since_date)
 
+        rss_raised = False
         try:
             articles = fetch_from_rss(source, since_date)
         except Exception as e:
@@ -153,9 +154,15 @@ def collect_source(conn, source, since_date):
                 raise
             print(f"  RSS failed ({e}) — trying HTML fallback...")
             articles = []
+            rss_raised = True
 
         if not articles and source.get("html_fallback"):
-            print("  RSS returned nothing — trying HTML fallback...")
+            # Only one "trying HTML fallback" line per run: the except
+            # branch above already printed why (RSS raised) when that's
+            # what happened, so don't print a second, different-sounding
+            # reason for the same single event.
+            if not rss_raised:
+                print("  RSS returned nothing — trying HTML fallback...")
             articles = fetch_from_html(source, since_date)
 
         detail["listed"] = len(articles)
