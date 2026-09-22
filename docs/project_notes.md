@@ -104,13 +104,22 @@ The RLS policies currently in `db/schema.sql` are permissive by design and are
 (there are deliberately no INSERT or DELETE policies), not to control who may
 read or edit. Real auth is required before Michal uses this unsupervised.
 
-**7. Backup codes and a recovery email in Michal's name, for every account.**
+**7. Remove `SUPABASE_SERVICE_ROLE_KEY` from the local `.env`.** It bypasses
+every row-level security policy in the database, and nothing in this project
+reads it — the pipeline talks to Postgres directly through `DATABASE_URL`, and
+the dashboard uses only the anon key (`dashboard/.env`,
+`VITE_SUPABASE_ANON_KEY`). It was already removed from the root
+`.env.example` for the same reason. A credential nobody uses is a credential
+that gets copied somewhere careless at handover; if it's ever needed again it
+can be regenerated from Supabase → Settings → API in one click.
 
-**8. Do the credential handover live with Michal, not in advance.**
+**8. Backup codes and a recovery email in Michal's name, for every account.**
+
+**9. Do the credential handover live with Michal, not in advance.**
 Change phone number, password and recovery address together with her; sign out
 all devices; regenerate backup codes (which invalidates the old ones).
 
-**9. Write Michal a short, non-technical handover document.** It must cover:
+**10. Write Michal a short, non-technical handover document.** It must cover:
 which accounts exist and their credentials; that the running cost should be
 zero; what the dashboard's warning banner means; **the GitHub 60-day rule**
 (see `heartbeat.yml`); the Gemini free-tier limit (~20 requests/day per model —
@@ -119,7 +128,7 @@ fix if a model 404s (see `.github/README.md`).
 
 ### Recommended, not blocking
 
-**10. Give SMA News Today a second path.** Its `rss_url` is `None`, so HTML
+**11. Give SMA News Today a second path.** Its `rss_url` is `None`, so HTML
 scraping is its **only** route — and it is the more prolific of the two active
 sources. A comment in `collector/sources.py` records that its RSS feed returns
 200. On 2026-09-20 the site 403'd the HTML listing for several hours and the
@@ -127,7 +136,7 @@ source produced nothing; the 14-day lookback window absorbed it completely and
 no article was lost, but a source with a single path is a single point of
 failure in a system meant to run unattended for years.
 
-**11. The paid Gemini tier is a real option.** 503 "high demand" errors on the
+**12. The paid Gemini tier is a real option.** 503 "high demand" errors on the
 free tier are widespread and documented — Google's own rate-limit page says
 "Specified rate limits are not guaranteed and actual capacity may vary", and
 their forum carries long threads about it, **including from paying customers**.
@@ -136,7 +145,7 @@ order of **cents per month**. It was not enabled because "zero cost" was
 promised to the association and because paying does not eliminate 503s — but if
 availability ever proves insufficient, this is the lever, and it is cheap.
 
-**12. Two GitHub deprecations to be aware of.** `actions/checkout@v4` and
+**13. Two GitHub deprecations to be aware of.** `actions/checkout@v4` and
 `actions/setup-python@v5` target Node.js 20, which GitHub has deprecated and is
 currently force-running on Node 24. Separately, `ubuntu-latest` migrates to
 Ubuntu 26 on 2026-10-19. Both will most likely pass without incident — but if

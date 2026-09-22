@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A social media/news monitoring dashboard for **עמותת משפחות SMA ישראל** (SMA Israel Families Association). The UI is in Hebrew with RTL layout. The app fetches SMA-related news articles and presents them for editorial review (approve/edit/reject).
+The Dashboard for **עמותת משפחות SMA ישראל** (SMA Israel Families Association) — the screen Michal, the association's director, uses to review Hebrew article summaries produced by the Processor and decide what gets published. The UI is in Hebrew with RTL layout.
+
+**This app has never been run against the real database by anyone.** Treat anything not explicitly described here as unverified.
 
 ## Commands
 
@@ -17,19 +19,57 @@ npm run preview   # Preview production build locally
 
 No test runner is configured.
 
-## Architecture
+## Data flow
 
-**Entry point:** `src/main.jsx` → `src/App.jsx`
+`src/App.jsx` fetches all rows from Supabase once on mount:
 
-**Routing:** React Router v6. Three routes: `/` (ניוזלטר), `/archive` (ארכיון), `/stats` (סטטיסטיקות).
+```js
+supabase.from('content_items').select('*').order('published_at', { ascending: false })
+```
 
-**Data flow:** `src/mockData.js` exports `articlesData`. `App.jsx` holds articles in state and passes `onUpdate(id, changes)` down to each `NewsCard`.
+and holds them in `articles` state, which it passes down to each page (`FeedPage`, `ArchivePage`, `StatsPage`) as a prop. `SettingsPage` does not receive `articles` — its one setting (`skipRejectConfirm`) lives in `localStorage`, not the database.
 
-**Components:**
-- `DashboardLayout` — RTL shell (`dir="rtl"`) with a `--bg-secondary` sidebar and top header. Accepts `children`.
-- `NewsCard` — Displays one article with Hebrew title, source, date, summary snippet, source link, approve/reject/edit actions. Clicking 'אשר' opens a publish modal where the user selects destinations (website / newsletter) before confirming. Contains an `EditModal` for inline editing.
+Writes go the other way: a page or `NewsCard` calls `onUpdate(id, changes)`, defined in `App.jsx`. `onUpdate` applies `changes` to local state immediately (optimistic update), then sends the same `changes` as a Supabase `.update(...).eq('id', id).select()`. If that call errors, or returns zero rows, `onUpdate` rolls the local state back to what it was before the optimistic update and shows a "השמירה נכשלה" (save failed) toast.
 
-**Styling:** Inline CSS-in-JS objects at the bottom of each component file. Global base styles in `src/index.css`. Light mode only (no dark mode). CSS variables:
+There is no polling and no realtime subscription — the fetch in `App.jsx` runs exactly once, on mount. Two browser tabs open on the dashboard at once will not see each other's changes until reloaded.
+
+## Real column names
+
+The database is Postgres, accessed here through the Supabase JS client with the anon key. `docs/db_contract.md` (in the repo root) is the authority on what each column means and which component owns it — read that, not this file, for column semantics. It is not restated here because a second copy of the schema is a second thing that goes stale.
+
+Columns this app actually reads or writes, as a quick reference for navigating the code (not as documentation of meaning):
+
+- Read: `id`, `source_name`, `source_url`, `published_at`, `created_at`, `title_he`, `summary_he`, `reviewed_title_he`, `reviewed_summary_he`, `review_status`, `processing_status`, `publish_target`
+- Written by `onUpdate` calls in `NewsCard.jsx`: `review_status`, `publish_target`, `reviewed_title_he`, `reviewed_summary_he`, `reviewed_by` (hardcoded to the string `'michal'`), `reviewed_at`
+
+`review_status` values used in the UI: `not_reviewed`, `needs_edit`, `approved`, `irrelevant` (there is no `draft`/`pending`/`rejected` — those were names from an earlier mock data shape and do not exist in the schema).
+
+## What this app does NOT yet do
+
+So the next reader is not misled by omission:
+
+- It never reads `newsletter_text_he` (the Pass 2 output) anywhere.
+- It never reads `collector_runs` — there is no health/status indicator for the pipeline in this UI.
+- It never writes `newsletter_batch_id`, `published_to_website_at`, or `published_to_newsletter_at`. The "פירסום" (publish) button only sets `review_status = 'approved'` and `publish_target`; it does not generate a newsletter file or mark anything as actually sent/copied.
+- Approving an item does not check whether `newsletter_text_he` exists yet — an item can be marked `approved` before Pass 2 has produced anything for it.
+
+## Routes
+
+Four routes, all wrapped in `DashboardLayout` (`src/App.jsx`):
+
+- `/` — `FeedPage`. Tabs: `not_reviewed` ("ידיעות הממתינות לאישור") and `needs_edit` ("טיוטות"). Has a search box and a "hide items still processing" checkbox (filters on `processing_status !== 'done'`).
+- `/archive` — `ArchivePage`. Tabs: `approved` ("אושרו") and `irrelevant` ("נדחו"). Same search box, same `NewsCard`.
+- `/stats` — `StatsPage`. Read-only KPI cards and breakdowns computed client-side from the full `articles` array (counts by `review_status`, by `source_name`, a 6-month trend by `created_at`, channel split by `publish_target`).
+- `/settings` — `SettingsPage`. One toggle (skip the reject confirmation dialog), stored in `localStorage` only — nothing here touches Supabase.
+
+## Components
+
+- `DashboardLayout` — RTL shell (`dir="rtl"`) with a sidebar (logo + nav) and header. Accepts `children`.
+- `NewsCard` (`src/components/NewsCards.jsx`) — displays one article, showing `reviewed_title_he ?? title_he` and `reviewed_summary_he ?? summary_he` (the reviewed/edited version wins once it exists). Contains three modals: edit (save as draft or approve from there), approve (choose `website`/`newsletter`/`both` before confirming), and reject (with an optional "don't ask again" checkbox backed by the same `localStorage` key `SettingsPage` writes).
+
+## Styling
+
+Inline CSS-in-JS objects at the bottom of each component file. Global base styles in `src/index.css`. Light mode only (no dark mode). CSS variables:
 
 ```css
 --text: #3a3a3a
@@ -45,59 +85,6 @@ No test runner is configured.
 --shadow: rgba(0,0,0,0.06) 0 4px 12px -2px, rgba(0,0,0,0.04) 0 2px 4px -1px
 ```
 
-## Key Context
+## Environment
 
-- `mockData.js` is a temporary stand-in — eventually articles will come from a backend Processor service via API.
-- Sidebar uses `<NavLink>` from React Router with active state styling.
-
-## Data Shape
-
-Articles come from `src/mockData.js`:
-
-```js
-{
-  id: string,
-  source: string,
-  url: string,
-  published_at: string,        // ISO date string
-  status: string,              // scraper status — ignore in UI
-  editorialStatus: 'pending' | 'approved' | 'rejected' | 'draft',
-  destinations: {
-    website: boolean,
-    newsletter: boolean,
-  },
-  outputs: {
-    title_he: string,          // Hebrew title — editable
-    summary_he: string,        // Hebrew summary — editable
-  }
-}
-```
-
-The original English title is NOT shown anywhere in the UI.
-
-## Current Task: Update Page Content Per Route
-
-### ניוזלטר page (`/`)
-- Filter tabs: **ממתינות לאישור** and **טיוטות** only
-- Default active tab: **ממתינות לאישור**
-- Each tab shows a count badge derived from the full articles array
-
-### ארכיון page (`/archive`)
-- Same tab bar style as ניוזלטר
-- Two tabs: **אושרו** and **נדחו**
-- Default active tab: **אושרו**
-- Each tab shows a count badge
-- Uses the same `NewsCard` component
-- If a tab is empty: show "אין כתבות להציג" centered
-
-### סטטיסטיקות page (`/stats`)
-- Simple summary cards in a grid:
-  - ממתינים לאישור — count of `pending`
-  - טיוטות — count of `draft`
-  - אושרו — count of `approved`
-  - נדחו — count of `rejected`
-- Each card: large number, label below, `var(--accent-bg)` background, `var(--accent)` border, `border-radius: 12px`, `padding: 24px`
-- Grid: 2 columns on mobile, 4 columns on desktop
-
-### State
-- `articles` state stays in `App.jsx` and is passed to all pages via React Router or shared context
+`src/supabaseClient.js` reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from `import.meta.env` (Vite bundles any `VITE_`-prefixed variable into the built JavaScript, so these are public once deployed — this must always be the anon/publishable key, never the service_role key). See `dashboard/.env.example`.
