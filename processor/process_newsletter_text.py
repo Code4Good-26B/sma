@@ -84,9 +84,15 @@ def _fetch_eligible(cur, limit: int | None) -> list[dict]:
     newsletter and the website copy-paste block, so an article approved for
     the website alone needs it just as much as one approved for the
     newsletter. What makes generation pointless is having no destination at
-    all (publish_target = 'none', reachable today via the dashboard's
-    approve modal with neither checkbox ticked) — not having a destination
-    other than the newsletter.
+    all. The dashboard's approve modal no longer allows confirming with
+    publish_target = 'none' (it disables the confirm button until a
+    destination is ticked), and its "החזרה לתור" action for an already-
+    approved article sets review_status back to 'not_reviewed' in the same
+    update that clears publish_target to 'none' — so review_status =
+    'approved' AND publish_target = 'none' should no longer occur through
+    normal use of the dashboard at all. A row in exactly that combination
+    means it predates the approve-modal guard (this filter still excludes
+    those old rows, which is why it's kept), not that the guard was bypassed.
     """
     query = """
         SELECT

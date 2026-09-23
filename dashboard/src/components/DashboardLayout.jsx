@@ -1,6 +1,7 @@
 // src/components/DashboardLayout.jsx
 import { NavLink } from 'react-router-dom';
 import smaLogo from '../assets/sma_logo.png';
+import HealthBanner from './HealthBanner';
 
 const navLinks = [
   { to: '/',          label: '📰 ידיעות חדשות',    end: true },
@@ -9,7 +10,7 @@ const navLinks = [
   { to: '/settings',  label: '⚙️ הגדרות' },
 ];
 
-export default function DashboardLayout({ children }) {
+export default function DashboardLayout({ children, health }) {
   return (
     <div dir="rtl" style={layoutStyle}>
       {/* Sidebar */}
@@ -34,6 +35,9 @@ export default function DashboardLayout({ children }) {
         <header style={headerStyle}>
           <h2 style={{ margin: 0 }}>עמותת משפחות SMA ישראל: פורטל ניהול ידיעות</h2>
         </header>
+
+        {/* System health, not page content — shown above every route. */}
+        <HealthBanner health={health} />
 
         <main style={contentStyle}>
           {children}

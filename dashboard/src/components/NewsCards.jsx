@@ -29,6 +29,14 @@ const toPublishTarget = ({ website, newsletter }) => {
   return 'none';
 };
 
+// Inverse of toPublishTarget — pre-fills the approve modal's checkboxes from
+// the article's current publish_target, so opening it on an already-routed
+// article shows where it's actually going instead of resetting to blank.
+const toDestinations = (target) => ({
+  website: target === 'website' || target === 'both',
+  newsletter: target === 'newsletter' || target === 'both',
+});
+
 export default function NewsCard({ article, onUpdate }) {
   const {
     id,
@@ -101,8 +109,20 @@ export default function NewsCard({ article, onUpdate }) {
   const openApproveFromEdit = () => {
     onUpdate(id, { reviewed_title_he: editTitle, reviewed_summary_he: editSummary });
     setShowModal(false);
-    setApproveDestinations({ website: false, newsletter: false });
+    setApproveDestinations(toDestinations(publish_target));
     setShowApproveModal(true);
+  };
+
+  const openApproveModal = () => {
+    setApproveDestinations(toDestinations(publish_target));
+    setShowApproveModal(true);
+  };
+
+  const takeBackApproval = () => {
+    // Deliberately does NOT clear newsletter_text_he: if Michal re-approves
+    // later, the publication text is still there and no Gemini call is
+    // spent regenerating it.
+    onUpdate(id, { review_status: 'not_reviewed', publish_target: 'none' });
   };
 
   return (
@@ -156,12 +176,33 @@ export default function NewsCard({ article, onUpdate }) {
             >
               החזרה לתור ידיעות חדשות
             </button>
+          ) : review_status === 'approved' ? (
+            <>
+              <button style={btnStyle} onClick={openModal}>עריכה</button>
+              <button
+                style={{ ...btnStyle, backgroundColor: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
+                onClick={openApproveModal}
+              >
+                שינוי יעד
+              </button>
+              {/* No direct "reject" button here on purpose: rejecting an
+                  already-approved article now takes two deliberate steps —
+                  this button back to the queue, then דחייה from there —
+                  rather than one click, which is the safer default for an
+                  approval that may already be live in the newsletter/site. */}
+              <button
+                style={{ ...btnStyle, backgroundColor: 'var(--secondary)', color: '#fff', borderColor: 'var(--secondary)' }}
+                onClick={takeBackApproval}
+              >
+                החזרה לתור
+              </button>
+            </>
           ) : (
             <>
               <button style={btnStyle} onClick={openModal}>עריכה</button>
               <button
                 style={{ ...btnStyle, backgroundColor: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
-                onClick={() => { setApproveDestinations({ website: false, newsletter: false }); setShowApproveModal(true); }}
+                onClick={openApproveModal}
               >
                 פירסום
               </button>
