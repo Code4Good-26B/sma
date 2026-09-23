@@ -274,15 +274,20 @@ export default function NewsCard({ article, onUpdate }) {
               </label>
             </div>
             <div style={modalFooterStyle}>
+              {/* Always clickable — the previous version disabled this
+                  button with no destination selected, but "approved, I
+                  haven't decided where yet" is a legitimate thing for
+                  Michal to mean, and the danger that guarded against (an
+                  article approved to nowhere, invisibly) is now handled by
+                  the red "ללא יעד פרסום" badge shown on the card itself.
+                  Instead, the button's own label and colour say exactly
+                  what it will do, so confirming it can't be an accident. */}
               <button
-                disabled={noDestinationSelected}
                 style={{
                   ...btnStyle,
                   backgroundColor: noDestinationSelected ? '#9ca3af' : '#22c55e',
                   color: '#fff',
                   borderColor: noDestinationSelected ? '#9ca3af' : '#22c55e',
-                  cursor: noDestinationSelected ? 'not-allowed' : 'pointer',
-                  opacity: noDestinationSelected ? 0.6 : 1,
                 }}
                 onClick={() => {
                   onUpdate(id, {
@@ -294,7 +299,7 @@ export default function NewsCard({ article, onUpdate }) {
                   setShowApproveModal(false);
                 }}
               >
-                פירסום
+                {noDestinationSelected ? 'אישור ללא יעד' : 'פירסום'}
               </button>
               <button style={btnStyle} onClick={() => setShowApproveModal(false)}>ביטול</button>
             </div>

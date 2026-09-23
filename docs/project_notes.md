@@ -178,6 +178,21 @@ silence. An untested alert is not an alert.
 
 ## Decisions that look wrong but are not
 
+**The publish screen edits `newsletter_text_he` directly — there is no
+`reviewed_newsletter_text_he` column**, unlike the `reviewed_title_he` /
+`reviewed_summary_he` pattern used for the triage text. Pass 2's own selection
+guard is `newsletter_text_he IS NULL`
+(`processor/process_newsletter_text.py`), so an edited (non-null) text is
+already safe from being silently regenerated over — that property exists
+without a second column. A `reviewed_` column would buy exactly one thing
+(the ability to see the original AI-generated text after an edit) at the
+cost of a migration, a schema change, a contract update in three documents,
+and a fallback rule in every future reader. The real cost, written down
+plainly: **editing is destructive** — there is no "revert to generated"
+anywhere in this UI. If that ever turns out to matter, the fix is adding
+`reviewed_newsletter_text_he` later; nothing built here needs to change to
+allow it.
+
 **`processing_status = 'processing'` is never written**, though the check
 constraint allows it. A run killed mid-article would leave a row stuck in that
 state, matching neither `pending` nor `failed`, so no future run would ever

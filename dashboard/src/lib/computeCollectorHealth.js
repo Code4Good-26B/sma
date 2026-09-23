@@ -29,7 +29,9 @@ const STALE_AFTER_MS = 2 * 24 * 60 * 60 * 1000;
  * @returns {
  *   | { status: 'unknown' }
  *   | { status: 'stale', lastFinishedAt: string | null }
- *   | { status: 'source_failing', sourceName: string, lastOkAt: string | null }
+ *   | { status: 'source_failing',
+ *       failingSources: Array<{ name: string, lastOkAt: string | null }>,
+ *       totalSourceCount: number }
  *   | { status: 'healthy', lastFinishedAt: string }
  * }
  */
@@ -62,38 +64,45 @@ export function computeCollectorHealth(runs, now) {
     };
   }
 
-  // Per-source: for every source name seen anywhere in the fetched window,
-  // find the most recent run (newest-first, so the first match per name)
-  // in which it reported status 'ok'.
-  const lastOkBySource = new Map();
-  const allSourceNames = [];
-  const seenNames = new Set();
+  // Which sources currently exist comes from the NEWEST run only, not the
+  // whole fetched window. collect_source (collector/main.py) appends a
+  // detail entry to a run's `sources` array for every configured source,
+  // even one that errored, so the newest run's `sources` array is exactly
+  // today's source configuration. Sourcing this list from older runs too
+  // would mean a source commented out of sources.py keeps being reported as
+  // "failing" for as long as it lingers in the fetched window — up to
+  // ~2 weeks at one run/day — after it has already stopped existing. That
+  // is exactly the false alarm this project is built to avoid, and it is
+  // not hypothetical: two sources are commented out in sources.py today.
+  const newestRun = sorted[0];
+  const currentSourceNames = (Array.isArray(newestRun.sources) ? newestRun.sources : [])
+    .map((s) => s?.name)
+    .filter(Boolean);
 
+  // The *last-ok time* for each currently-configured source is still looked
+  // up across the whole fetched window — a source can be configured today
+  // but simply not have reported 'ok' recently.
+  const lastOkBySource = new Map();
   for (const run of sorted) {
     const sources = Array.isArray(run.sources) ? run.sources : [];
     for (const s of sources) {
       const name = s?.name;
       if (!name) continue;
-      if (!seenNames.has(name)) {
-        seenNames.add(name);
-        allSourceNames.push(name);
-      }
       if (s.status === 'ok' && !lastOkBySource.has(name)) {
         lastOkBySource.set(name, run.finished_at ?? run.started_at);
       }
     }
   }
 
-  const failingSources = allSourceNames.filter(
-    (name) => !withinTwoDays(lastOkBySource.get(name) ?? null)
-  );
+  const failingSources = currentSourceNames
+    .filter((name) => !withinTwoDays(lastOkBySource.get(name) ?? null))
+    .map((name) => ({ name, lastOkAt: lastOkBySource.get(name) ?? null }));
 
   if (failingSources.length > 0) {
-    const sourceName = failingSources[0];
     return {
       status: 'source_failing',
-      sourceName,
-      lastOkAt: lastOkBySource.get(sourceName) ?? null,
+      failingSources,
+      totalSourceCount: currentSourceNames.length,
     };
   }
 

@@ -6,6 +6,7 @@ import HealthBanner from './HealthBanner';
 const navLinks = [
   { to: '/',          label: '📰 ידיעות חדשות',    end: true },
   { to: '/archive',   label: '🗂️ ידיעות שטופלו' },
+  { to: '/publish',   label: '📝 טקסטים לפרסום' },
   { to: '/stats',     label: '📊 סטטיסטיקות' },
   { to: '/settings',  label: '⚙️ הגדרות' },
 ];

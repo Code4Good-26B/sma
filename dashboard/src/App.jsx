@@ -4,6 +4,7 @@ import { Routes, Route } from 'react-router-dom';
 import DashboardLayout from './components/DashboardLayout';
 import FeedPage from './pages/FeedPage';
 import ArchivePage from './pages/ArchivePage';
+import PublishPage from './pages/PublishPage';
 import StatsPage from './pages/StatsPage';
 import SettingsPage from './pages/SettingsPage';
 import { supabase } from './supabaseClient';
@@ -33,12 +34,15 @@ function App() {
 
       // Explicit column list, not select('*'): '*' pulls raw_text too,
       // which measured ~70% of the response payload on the live database
-      // and is never displayed anywhere in this UI.
+      // and is never displayed anywhere in this UI — keep it out even as
+      // columns get added here (newsletter_text_he, reviewed_at, for the
+      // publication-texts screen).
       const { data, error } = await supabase
         .from('content_items')
         .select(
           'id, source_name, source_url, published_at, created_at, ' +
           'title_he, summary_he, reviewed_title_he, reviewed_summary_he, ' +
+          'newsletter_text_he, reviewed_at, ' +
           'review_status, processing_status, publish_target'
         )
         .order('published_at', { ascending: false });
@@ -84,6 +88,11 @@ function App() {
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   };
 
+  // Returns true/false so a caller that needs to show its own success
+  // confirmation (the publish screen's "שמירה" button) can tell whether the
+  // write actually landed, without a second update path — the failure
+  // toast below still fires from here either way, so callers only need to
+  // handle their own success case.
   const onUpdate = async (id, changes) => {
     const previous = articles.find(a => a.id === id);
 
@@ -108,7 +117,10 @@ function App() {
       );
       showToast('השמירה נכשלה, נסי שוב', 'error');
       if (error) console.error('Failed to update article:', error);
+      return false;
     }
+
+    return true;
   };
 
   return (
@@ -122,6 +134,7 @@ function App() {
           <Routes>
             <Route path="/" element={<FeedPage articles={articles} onUpdate={onUpdate} />} />
             <Route path="/archive" element={<ArchivePage articles={articles} onUpdate={onUpdate} />} />
+            <Route path="/publish" element={<PublishPage articles={articles} onUpdate={onUpdate} />} />
             <Route path="/stats" element={<StatsPage articles={articles} />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>

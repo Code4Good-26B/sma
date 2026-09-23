@@ -31,9 +31,17 @@ export default function HealthBanner({ health }) {
   }
 
   if (health.status === 'source_failing') {
-    const message = health.lastOkAt
-      ? `לא התקבלו ידיעות מ-${health.sourceName} מאז ${formatDay(health.lastOkAt)}. שאר המקורות תקינים.`
-      : `לא התקבלו ידיעות תקינות מ-${health.sourceName} בבדיקות האחרונות. שאר המקורות תקינים.`;
+    // Every currently-configured source is checked individually (see
+    // computeCollectorHealth), so this lists ALL of them that are failing —
+    // never just the first — and only claims the rest are fine when the
+    // code actually confirmed that (i.e. it isn't literally every source).
+    const clauses = health.failingSources.map((fs) =>
+      fs.lastOkAt ? `${fs.name} (מאז ${formatDay(fs.lastOkAt)})` : `${fs.name} (בבדיקות האחרונות)`
+    );
+    const allFailing = health.failingSources.length >= health.totalSourceCount;
+    const message =
+      `לא התקבלו ידיעות מ: ${clauses.join(', ')}.` +
+      (allFailing ? '' : ' שאר המקורות תקינים.');
     return <div style={{ ...bannerStyle, ...amberStyle }}>{message}</div>;
   }
 
