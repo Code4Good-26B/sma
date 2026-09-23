@@ -29,10 +29,15 @@ export default function PublishItem({ article, onUpdate }) {
     reviewed_title_he,
     newsletter_text_he,
     reviewed_at,
+    newsletter_batch_id,
+    published_to_newsletter_at,
   } = article;
 
   const displayTitle = reviewed_title_he ?? title_he ?? '';
   const formattedDate = published_at ? new Date(published_at).toLocaleDateString('he-IL') : '—';
+  const sentDate = published_to_newsletter_at
+    ? new Date(published_to_newsletter_at).toLocaleDateString('he-IL')
+    : null;
 
   const savedText = newsletter_text_he ?? '';
   const [text, setText] = useState(savedText);
@@ -61,6 +66,15 @@ export default function PublishItem({ article, onUpdate }) {
         <strong>מקור:</strong> {source_name} | <strong>תאריך:</strong> {formattedDate} |{' '}
         <a href={source_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>מעבר למקור</a>
       </div>
+
+      {/* newsletter_batch_id is only ever set by NewsletterBuilder's "סמן
+          כנשלח" (docs/db_contract.md, "Dashboard (as Publisher)") — an
+          article stays fully visible and editable after being sent, so
+          nothing here disappears silently, but this note makes clear it
+          already went out and isn't waiting on anything. */}
+      {newsletter_batch_id && (
+        <div style={sentNoticeStyle}>נשלח בניוזלטר{sentDate ? ` ב-${sentDate}` : ''}</div>
+      )}
 
       {hasText ? (
         <>
@@ -132,6 +146,17 @@ const headerStyle = {
 };
 
 const metaStyle = { fontSize: '0.9rem', color: 'var(--text)', marginBottom: '12px' };
+
+const sentNoticeStyle = {
+  display: 'inline-block',
+  marginBottom: '12px',
+  padding: '2px 10px',
+  borderRadius: '999px',
+  fontSize: '0.75rem',
+  fontWeight: 600,
+  background: 'var(--secondary-bg, rgba(74,191,176,0.08))',
+  color: 'var(--secondary, #4abfb0)',
+};
 
 const textareaStyle = {
   width: '100%',

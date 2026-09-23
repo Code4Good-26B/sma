@@ -218,11 +218,11 @@ Reads:
 
 Updates:
 
-- `publish_status`
-- `newsletter_batch_id`
-- `published_to_website_at`
-- `published_to_newsletter_at`
-- `error_message`
+- `newsletter_batch_id` — written today, by the newsletter flow described below
+- `published_to_newsletter_at` — written today, by the newsletter flow described below
+- `publish_status` — reserved for the website flow below; not written by anything yet
+- `published_to_website_at` — reserved for the website flow below; not written by anything yet
+- `error_message` — reserved for completeness; not written by anything yet
 
 Allowed `publish_status` values:
 
@@ -231,18 +231,26 @@ Allowed `publish_status` values:
 - `published`
 - `failed`
 
-When Michal generates a newsletter or copies an article to the website, the
-Dashboard should update:
+**Only the newsletter half of this is built.** Clicking "צור ניוזלטר" in the
+Dashboard renders a preview in Michal's browser and writes nothing — the two
+columns above are written only when she separately clicks "סמן כנשלח" after
+generating that preview, and only for the articles that were in it:
 
-- `publish_status = 'published'`
-- `newsletter_batch_id`, if included in a newsletter batch
-- `published_to_website_at`, if copied to the website
-- `published_to_newsletter_at`, if included in a newsletter
+- `newsletter_batch_id` is set to the moment the preview was generated (not
+  the moment "סמן כנשלח" is clicked), formatted `YYYY-MM-DDTHH:mm` (e.g.
+  `2026-09-23T14:05`) — readable directly in a SQL query later, and unique in
+  practice at this project's newsletter frequency (at most a few times a
+  month).
+- `published_to_newsletter_at` is set to the moment "סמן כנשלח" is clicked.
 
-This is purely bookkeeping so the same article is not offered to Michal again next
-time — there is no external system whose response could fail, so `publish_status =
-'failed'` / `error_message` exist for completeness but are not expected to be used
-in practice under the copy-paste model.
+The per-item website copy button (the אתר tab's equivalent action) does not
+exist yet. When it is built, it should follow the same rule for the same
+reason: the system has no way to know whether Michal actually sent the mail
+or pasted the text, so only an explicit confirmation click may write — never
+the act of building a preview or a copy-paste block. Marking on generation
+would let a caught typo silently drop an article forever (it would never be
+offered again); marking only on explicit confirmation risks nothing worse
+than a duplicate if she forgets, and a duplicate is recoverable.
 
 ---
 
@@ -363,12 +371,26 @@ The Dashboard offers items for newsletter generation or website copy-paste where
 - `publish_status = 'not_published'`
 - `newsletter_text_he IS NOT NULL`
 
-When Michal generates a newsletter or copies an article to the website, it updates:
+**Only the newsletter half of this is built.** Clicking "צור ניוזלטר" in the
+Dashboard renders a preview in Michal's browser and writes nothing — the two
+columns above are written only when she separately clicks "סמן כנשלח" after
+generating that preview, and only for the articles that were in it:
 
-- `publish_status = 'published'`
-- `newsletter_batch_id`
-- `published_to_website_at`
-- `published_to_newsletter_at`
+- `newsletter_batch_id` is set to the moment the preview was generated (not
+  the moment "סמן כנשלח" is clicked), formatted `YYYY-MM-DDTHH:mm` (e.g.
+  `2026-09-23T14:05`) — readable directly in a SQL query later, and unique in
+  practice at this project's newsletter frequency (at most a few times a
+  month).
+- `published_to_newsletter_at` is set to the moment "סמן כנשלח" is clicked.
+
+The per-item website copy button (the אתר tab's equivalent action) does not
+exist yet. When it is built, it should follow the same rule for the same
+reason: the system has no way to know whether Michal actually sent the mail
+or pasted the text, so only an explicit confirmation click may write — never
+the act of building a preview or a copy-paste block. Marking on generation
+would let a caught typo silently drop an article forever (it would never be
+offered again); marking only on explicit confirmation risks nothing worse
+than a duplicate if she forgets, and a duplicate is recoverable.
 
 ---
 
@@ -418,15 +440,25 @@ Michal to generate a newsletter or copy it to the website from the Dashboard.
 - `publish_status = 'not_published'`
 - `newsletter_text_he` is set
 
-### 5. Published item
+### 5. Sent in a newsletter
 
-Michal generated the newsletter and/or copied the article to the website.
+Michal generated a newsletter that included this article and clicked "סמן
+כנשלח" (see "Dashboard (as Publisher)" above — only the newsletter half of
+publishing is built today, so this is the only way `content_items` reaches a
+"sent" state right now).
 
 - `processing_status = 'done'`
 - `review_status = 'approved'`
-- `publish_target = 'website'`, `newsletter`, or `both`
-- `publish_status = 'published'`
+- `publish_target = 'newsletter'` or `both`
+- `publish_status = 'not_published'` (not written by anything yet)
 - `newsletter_text_he` is set
+- `newsletter_batch_id` is set, to the newsletter's generation timestamp
+- `published_to_newsletter_at` is set
+
+An article approved for the website only, or approved for both but not yet
+included in a sent newsletter, stays at `newsletter_batch_id = NULL` and is
+still offered on the /publish screen's ניוזלטר tab (if applicable) or אתר
+tab.
 
 ---
 

@@ -5,12 +5,17 @@
 // deciding interesting/not; she reviews publication texts roughly monthly,
 // before sending — different mindset, different frequency.
 //
-// The newsletter tab is where "צור ניוזלטר" lands (a button on this tab);
-// the website tab is where a per-item copy button lands. Both are later
-// tasks — this file is structured so they drop onto an existing tab without
-// rearranging the page.
+// The website tab is where a per-item copy button lands — a later task,
+// which is why it still shows every matching approved article exactly as
+// before, with no "already sent" concept. The newsletter tab now has one:
+// an article stops being offered for a new newsletter once
+// newsletter_batch_id is set (NewsletterBuilder's "סמן כנשלח"), but it stays
+// visible below, under "נשלחו בעבר", instead of disappearing — a vanished
+// article is exactly the kind of silent behaviour this project avoids
+// everywhere else (docs/project_notes.md).
 import { useState } from 'react';
 import PublishItem from '../components/PublishItem';
+import NewsletterBuilder from '../components/NewsletterBuilder';
 
 const TABS = [
   {
@@ -32,11 +37,22 @@ export default function PublishPage({ articles, onUpdate }) {
   const activeTabDef = TABS.find(t => t.key === activeTab);
   const tabArticles = approved.filter(activeTabDef.matches);
 
+  const isNewsletterTab = activeTab === 'newsletter';
+  const unsentNewsletterArticles = isNewsletterTab ? tabArticles.filter(a => !a.newsletter_batch_id) : [];
+  const sentNewsletterArticles = isNewsletterTab ? tabArticles.filter(a => a.newsletter_batch_id) : [];
+  const visibleArticles = isNewsletterTab ? unsentNewsletterArticles : tabArticles;
+
   return (
     <section>
       <div style={tabBarStyle}>
         {TABS.map(tab => {
-          const count = approved.filter(tab.matches).length;
+          // The newsletter tab's badge counts only what still needs
+          // action (unsent articles) — one already sent isn't something
+          // Michal needs to look at again, even though it stays visible
+          // further down the page.
+          const count = tab.key === 'newsletter'
+            ? approved.filter(tab.matches).filter(a => !a.newsletter_batch_id).length
+            : approved.filter(tab.matches).length;
           const isActive = activeTab === tab.key;
           return (
             <button
@@ -51,11 +67,24 @@ export default function PublishPage({ articles, onUpdate }) {
         })}
       </div>
 
-      {tabArticles.map(article => (
+      {isNewsletterTab && (
+        <NewsletterBuilder eligibleArticles={unsentNewsletterArticles} onUpdate={onUpdate} />
+      )}
+
+      {visibleArticles.map(article => (
         <PublishItem key={article.id} article={article} onUpdate={onUpdate} />
       ))}
 
-      {tabArticles.length === 0 && (
+      {isNewsletterTab && sentNewsletterArticles.length > 0 && (
+        <div style={sentSectionStyle}>
+          <h4 style={sentSectionHeadingStyle}>נשלחו בעבר</h4>
+          {sentNewsletterArticles.map(article => (
+            <PublishItem key={article.id} article={article} onUpdate={onUpdate} />
+          ))}
+        </div>
+      )}
+
+      {visibleArticles.length === 0 && sentNewsletterArticles.length === 0 && (
         <p style={{ color: '#888', textAlign: 'right', marginTop: '24px' }}>
           אין כתבות מאושרות ליעד זה.
         </p>
@@ -103,4 +132,17 @@ const badgeStyle = {
   background: 'var(--accent-bg, #e8f0fe)',
   color: 'var(--accent, #0066cc)',
   fontWeight: 'normal',
+};
+
+const sentSectionStyle = {
+  marginTop: '32px',
+  paddingTop: '16px',
+  borderTop: '1px solid var(--border, #e0e0e0)',
+};
+
+const sentSectionHeadingStyle = {
+  margin: '0 0 12px 0',
+  fontSize: '0.9rem',
+  color: 'var(--text)',
+  textAlign: 'right',
 };

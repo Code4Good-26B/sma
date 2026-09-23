@@ -1,5 +1,20 @@
 # SMA Newsletter — Publisher
 
+**This package is reference, not production.** The live newsletter is generated
+inside the Dashboard (`dashboard/src/lib/buildNewsletterHtml.js`), a JavaScript
+port of the Jinja template in this folder — the Dashboard is a static React app
+on Vercel with no backend, so it cannot run this Python at runtime, and there is
+no separate Publisher service (see `docs/db_contract.md`, "Dashboard (as
+Publisher)"). `publisher.py` here still runs, but only against the sample
+fixtures in `sample_articles/` — it has no connection to the real database and
+will happily produce a newsletter that goes nowhere. `send_brevo.py` is unused
+by the running system and was never tested end to end against a real mailing
+list. If you have opened this folder expecting to find how newsletters actually
+get sent today: they don't get sent automatically at all — Michal generates and
+downloads/copies the newsletter from the Dashboard and sends it herself. Running
+`publisher.py` will produce a newsletter file, but believing that is the system
+in action is the mistake this paragraph exists to prevent.
+
 Renders the monthly Hebrew/English newsletter for **Israel SMA Families Association**
 (עמותת משפחות SMA ישראל) and optionally sends it through Brevo.
 

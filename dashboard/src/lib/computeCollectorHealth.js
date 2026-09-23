@@ -74,8 +74,18 @@ export function computeCollectorHealth(runs, now) {
   // ~2 weeks at one run/day — after it has already stopped existing. That
   // is exactly the false alarm this project is built to avoid, and it is
   // not hypothetical: two sources are commented out in sources.py today.
-  const newestRun = sorted[0];
-  const currentSourceNames = (Array.isArray(newestRun.sources) ? newestRun.sources : [])
+  //
+  // "Newest run" here means the newest run that actually HAS a sources
+  // array, not simply sorted[0] — the Collector inserts a run row with
+  // status='running' and sources still NULL before any source has been
+  // attempted, so sorted[0] can be that in-flight row. Falling through to
+  // it would silently skip the per-source check entirely: harmless for the
+  // few minutes a normal run takes, but a run that dies mid-way leaves that
+  // 'running' row stuck forever with sources still NULL, which would
+  // suppress source warnings indefinitely rather than just for a few
+  // minutes.
+  const newestRunWithSources = sorted.find((r) => Array.isArray(r.sources));
+  const currentSourceNames = (newestRunWithSources ? newestRunWithSources.sources : [])
     .map((s) => s?.name)
     .filter(Boolean);
 

@@ -35,14 +35,15 @@ function App() {
       // Explicit column list, not select('*'): '*' pulls raw_text too,
       // which measured ~70% of the response payload on the live database
       // and is never displayed anywhere in this UI — keep it out even as
-      // columns get added here (newsletter_text_he, reviewed_at, for the
-      // publication-texts screen).
+      // columns get added here (newsletter_text_he, reviewed_at,
+      // newsletter_batch_id, published_to_newsletter_at, for the
+      // publication-texts / newsletter screen).
       const { data, error } = await supabase
         .from('content_items')
         .select(
           'id, source_name, source_url, published_at, created_at, ' +
           'title_he, summary_he, reviewed_title_he, reviewed_summary_he, ' +
-          'newsletter_text_he, reviewed_at, ' +
+          'newsletter_text_he, reviewed_at, newsletter_batch_id, published_to_newsletter_at, ' +
           'review_status, processing_status, publish_target'
         )
         .order('published_at', { ascending: false });
