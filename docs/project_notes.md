@@ -103,6 +103,10 @@ The RLS policies currently in `db/schema.sql` are permissive by design and are
 **not authentication**. They exist so that a leaked anon key cannot destroy data
 (there are deliberately no INSERT or DELETE policies), not to control who may
 read or edit. Real auth is required before Michal uses this unsupervised.
+When it lands, `reviewed_by` in `dashboard/src/components/NewsCards.jsx` must be
+changed to read the signed-in user instead of the hardcoded string `'michal'` —
+otherwise every edit made by anyone, forever, is attributed to her regardless of
+who actually made it.
 
 **7. Remove `SUPABASE_SERVICE_ROLE_KEY` from the local `.env`.** It bypasses
 every row-level security policy in the database, and nothing in this project
@@ -241,3 +245,7 @@ it exists solely to keep the schedule switched on.
   `collector_runs.status`. After the partial/systemic split, a run in which one
   source is dead still reports green. The per-source detail is in the `sources`
   jsonb column.
+- **`App.jsx` fetches every article with no pagination or date window.**
+  Switching `select('*')` to an explicit column list cut the payload by ~70%, but
+  the query itself is still unbounded — it will need a `limit` or a date window
+  once the table is large enough for that to matter.

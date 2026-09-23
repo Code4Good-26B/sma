@@ -33,7 +33,6 @@ export default function DashboardLayout({ children }) {
       <div style={mainWrapperStyle}>
         <header style={headerStyle}>
           <h2 style={{ margin: 0 }}>עמותת משפחות SMA ישראל: פורטל ניהול ידיעות</h2>
-          <div style={userProfileStyle}>שלום, מיכל 👋</div>
         </header>
 
         <main style={contentStyle}>
@@ -97,8 +96,6 @@ const headerStyle = {
   alignItems: 'center',
   padding: '0 30px',
 };
-
-const userProfileStyle = { fontSize: '0.9rem', color: 'var(--text)' };
 
 const contentStyle = {
   boxSizing: 'border-box',

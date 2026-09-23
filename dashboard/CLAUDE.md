@@ -21,10 +21,19 @@ No test runner is configured.
 
 ## Data flow
 
-`src/App.jsx` fetches all rows from Supabase once on mount:
+`src/App.jsx` fetches all rows from Supabase once on mount, with an explicit column
+list rather than `select('*')` — `*` pulls `raw_text` too, which measured ~70% of the
+response payload on the live database and is never displayed anywhere in this UI:
 
 ```js
-supabase.from('content_items').select('*').order('published_at', { ascending: false })
+supabase
+  .from('content_items')
+  .select(
+    'id, source_name, source_url, published_at, created_at, ' +
+    'title_he, summary_he, reviewed_title_he, reviewed_summary_he, ' +
+    'review_status, processing_status, publish_target'
+  )
+  .order('published_at', { ascending: false })
 ```
 
 and holds them in `articles` state, which it passes down to each page (`FeedPage`, `ArchivePage`, `StatsPage`) as a prop. `SettingsPage` does not receive `articles` — its one setting (`skipRejectConfirm`) lives in `localStorage`, not the database.

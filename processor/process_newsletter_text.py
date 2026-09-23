@@ -78,6 +78,15 @@ def _fetch_eligible(cur, limit: int | None) -> list[dict]:
     article costs one wasted API call per daily run, and is visible in the
     log — cheap enough that a dedicated counter isn't worth the extra
     column and code. If that ever changes, add one then.
+
+    `publish_target <> 'none'`, not `IN ('newsletter', 'both')`: despite its
+    name, newsletter_text_he is the publication text used for BOTH the
+    newsletter and the website copy-paste block, so an article approved for
+    the website alone needs it just as much as one approved for the
+    newsletter. What makes generation pointless is having no destination at
+    all (publish_target = 'none', reachable today via the dashboard's
+    approve modal with neither checkbox ticked) — not having a destination
+    other than the newsletter.
     """
     query = """
         SELECT
@@ -89,6 +98,7 @@ def _fetch_eligible(cur, limit: int | None) -> list[dict]:
             raw_text
         FROM content_items
         WHERE review_status = 'approved'
+          AND publish_target <> 'none'
           AND newsletter_text_he IS NULL
         ORDER BY published_at DESC
     """

@@ -130,7 +130,14 @@ website copy-paste block (there is one publication text, not two).
 
 Reads:
 
-- `content_items` where `review_status = 'approved'` AND `newsletter_text_he IS NULL`
+- `content_items` where `review_status = 'approved' AND publish_target <> 'none' AND newsletter_text_he IS NULL`
+
+`publish_target <> 'none'`, not `IN ('newsletter', 'both')`: despite its name,
+`newsletter_text_he` is the publication text used for BOTH the newsletter and the
+website copy-paste block, so an article approved for the website alone needs it
+just as much as one approved for the newsletter. What makes generation pointless
+is having no destination at all, not having a destination other than the
+newsletter.
 
 Updates:
 
@@ -138,7 +145,7 @@ Updates:
 - `error_message`
 
 There is no separate status column for Pass 2: "needs generating" is exactly
-`review_status = 'approved'` AND `newsletter_text_he IS NULL`; once
+`review_status = 'approved' AND publish_target <> 'none' AND newsletter_text_he IS NULL`; once
 `newsletter_text_he` is set, the article no longer matches that query. Michal can
 edit `newsletter_text_he` directly in the Dashboard afterwards — there is
 deliberately no separate `reviewed_` counterpart for it, unlike the triage title
@@ -337,8 +344,7 @@ The Dashboard updates:
 
 Pass 2 reads items where:
 
-- `review_status = 'approved'`
-- `newsletter_text_he IS NULL`
+- `review_status = 'approved' AND publish_target <> 'none' AND newsletter_text_he IS NULL`
 
 When it succeeds, it updates:
 

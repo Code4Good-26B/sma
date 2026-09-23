@@ -15,6 +15,13 @@ const STATUS_BORDER = {
   not_reviewed: 'transparent',
 };
 
+const PUBLISH_TARGET_LABEL = {
+  website:    'אתר',
+  newsletter: 'ניוזלטר',
+  both:       'אתר + ניוזלטר',
+  none:       'ללא יעד פרסום',
+};
+
 const toPublishTarget = ({ website, newsletter }) => {
   if (website && newsletter) return 'both';
   if (website) return 'website';
@@ -34,6 +41,7 @@ export default function NewsCard({ article, onUpdate }) {
     reviewed_summary_he,
     review_status,
     processing_status,
+    publish_target,
   } = article;
 
   const isProcessing = processing_status !== 'done';
@@ -49,6 +57,8 @@ export default function NewsCard({ article, onUpdate }) {
   const [showApproveModal, setShowApproveModal]     = useState(false);
   const [approveDestinations, setApproveDestinations] = useState({ website: false, newsletter: false });
   const [expanded, setExpanded]                     = useState(false);
+
+  const noDestinationSelected = !approveDestinations.website && !approveDestinations.newsletter;
 
   const formattedDate  = published_at ? new Date(published_at).toLocaleDateString('he-IL') : '—';
   const isTruncated    = displaySummary.length > 180;
@@ -101,11 +111,26 @@ export default function NewsCard({ article, onUpdate }) {
         <div style={{ opacity: review_status === 'irrelevant' ? 0.6 : 1 }}>
           <div style={cardHeaderStyle}>
             <h3 style={{ margin: 0, fontSize: '1rem' }}>{displayTitle}</h3>
+            {BADGE[review_status] && (
+              <span style={{ ...statusBadgeStyle, background: BADGE[review_status].bg }}>
+                {BADGE[review_status].text}
+              </span>
+            )}
           </div>
           <div style={metaStyle}>
             <strong>מקור:</strong> {source_name} | <strong>תאריך:</strong> {formattedDate} |{' '}
             <a href={source_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>מעבר למקור</a>
           </div>
+          {review_status === 'approved' && (
+            <div
+              style={{
+                ...publishTargetStyle,
+                ...(publish_target === 'none' ? publishTargetWarningStyle : publishTargetOkStyle),
+              }}
+            >
+              {PUBLISH_TARGET_LABEL[publish_target] ?? publish_target}
+            </div>
+          )}
           {isProcessing ? (
             <p style={processingPlaceholderStyle}>הידיעה עדיין בתהליך עיבוד</p>
           ) : (
@@ -209,7 +234,15 @@ export default function NewsCard({ article, onUpdate }) {
             </div>
             <div style={modalFooterStyle}>
               <button
-                style={{ ...btnStyle, backgroundColor: '#22c55e', color: '#fff', borderColor: '#22c55e' }}
+                disabled={noDestinationSelected}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: noDestinationSelected ? '#9ca3af' : '#22c55e',
+                  color: '#fff',
+                  borderColor: noDestinationSelected ? '#9ca3af' : '#22c55e',
+                  cursor: noDestinationSelected ? 'not-allowed' : 'pointer',
+                  opacity: noDestinationSelected ? 0.6 : 1,
+                }}
                 onClick={() => {
                   onUpdate(id, {
                     review_status:  'approved',
@@ -287,14 +320,36 @@ const btnStyle = {
   color: 'var(--text-h)',
 };
 
-const inlineBtnStyle = {
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  color: 'var(--accent)',
-  textDecoration: 'underline',
-  fontSize: '0.85rem',
-  padding: 0,
+const statusBadgeStyle = {
+  flexShrink: 0,
+  alignSelf: 'flex-start',
+  borderRadius: '999px',
+  fontSize: '12px',
+  fontWeight: 700,
+  padding: '2px 10px',
+  color: '#fff',
+};
+
+const publishTargetStyle = {
+  display: 'inline-block',
+  marginTop: '4px',
+  marginBottom: '8px',
+  padding: '2px 10px',
+  borderRadius: '999px',
+  fontSize: '0.75rem',
+  fontWeight: 600,
+};
+
+const publishTargetOkStyle = {
+  background: 'var(--secondary-bg)',
+  color: 'var(--secondary)',
+  border: '1px solid rgba(74, 191, 176, 0.3)',
+};
+
+const publishTargetWarningStyle = {
+  background: 'rgba(239, 68, 68, 0.12)',
+  color: '#ef4444',
+  border: '1px solid rgba(239, 68, 68, 0.35)',
 };
 
 const overlayStyle = {
@@ -357,16 +412,6 @@ const cardHeaderStyle = {
   alignItems: 'flex-start',
   gap: '12px',
   marginBottom: '12px',
-};
-
-const badgePillStyle = {
-  flexShrink: 0,
-  alignSelf: 'flex-start',
-  borderRadius: '999px',
-  fontSize: '12px',
-  fontWeight: 700,
-  padding: '2px 10px',
-  color: '#fff',
 };
 
 const approveCheckboxesStyle = {

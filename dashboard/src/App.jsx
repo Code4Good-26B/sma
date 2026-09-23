@@ -16,9 +16,16 @@ function App() {
 
   useEffect(() => {
     async function fetchArticles() {
+      // Explicit column list, not select('*'): '*' pulls raw_text too, which
+      // measured ~70% of the response payload on the live database and is
+      // never displayed anywhere in this UI.
       const { data, error } = await supabase
         .from('content_items')
-        .select('*')
+        .select(
+          'id, source_name, source_url, published_at, created_at, ' +
+          'title_he, summary_he, reviewed_title_he, reviewed_summary_he, ' +
+          'review_status, processing_status, publish_target'
+        )
         .order('published_at', { ascending: false });
 
       if (error) {
