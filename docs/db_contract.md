@@ -209,48 +209,94 @@ would be a permanent failure mode with no maintainer around to fix it, so
 "publishing" here means handing Michal something to send or paste herself, and then
 recording that she did.
 
-Reads:
+Reads (per tab on the /publish screen):
 
-- `content_items` where `review_status = 'approved'`
-- `publish_target != 'none'`
-- `publish_status = 'not_published'`
-- `newsletter_text_he IS NOT NULL` (Pass 2 must have produced the publication text)
+- **Newsletter tab:** `content_items` where `review_status = 'approved'`,
+  `publish_target IN ('newsletter', 'both')`, and `newsletter_batch_id IS
+  NULL` — an already-sent article stops being offered for a new batch, but
+  stays visible below in a separate "נשלחו בעבר" section (nothing
+  disappears).
+- **Website tab:** `content_items` where `review_status = 'approved'`,
+  `publish_target IN ('website', 'both')`, and `published_to_website_at IS
+  NULL` — mirrored: an already-published article stays visible under
+  "פורסמו בעבר".
+
+Both tabs show an article before Pass 2 has produced `newsletter_text_he`
+too (so it isn't hidden while that is still pending), but gate their
+respective action on it: "צור ניוזלטר" is disabled while any article in the
+batch still has a null `newsletter_text_he`, and the website tab's content
+copy / mark-published actions don't render for an article that has none yet
+(its title-copy button still does — the title comes from Pass 1, not Pass 2).
 
 Updates:
 
-- `newsletter_batch_id` — written today, by the newsletter flow described below
-- `published_to_newsletter_at` — written today, by the newsletter flow described below
-- `publish_status` — reserved for the website flow below; not written by anything yet
-- `published_to_website_at` — reserved for the website flow below; not written by anything yet
+- `newsletter_batch_id` — written by the newsletter flow described below
+- `published_to_newsletter_at` — written by the newsletter flow described below
+- `published_to_website_at` — written by the website flow described below
+- `publish_status` — dead; see "Unused columns" below
 - `error_message` — reserved for completeness; not written by anything yet
 
-Allowed `publish_status` values:
+Allowed `publish_status` values (schema-only — see "Unused columns" below for
+why nothing in this project ever sets one):
 
 - `not_published`
 - `queued`
 - `published`
 - `failed`
 
-**Only the newsletter half of this is built.** Clicking "צור ניוזלטר" in the
-Dashboard renders a preview in Michal's browser and writes nothing — the two
-columns above are written only when she separately clicks "סמן כנשלח" after
-generating that preview, and only for the articles that were in it:
+**Both channels are built the same deliberate way: generating a preview or
+copying to the clipboard never writes anything — only an explicit
+confirmation click does.** The system has no way to know whether Michal
+actually sent the newsletter or pasted the website copy, so marking on
+generation/copy would mean that previewing, spotting a typo, and closing the
+tab silently drops an article forever — it would never be offered again.
+Marking only on an explicit click risks the opposite mistake (she forgets,
+and the same article gets offered again later), but a duplicate is
+recoverable and silent loss is not.
 
-- `newsletter_batch_id` is set to the moment the preview was generated (not
-  the moment "סמן כנשלח" is clicked), formatted `YYYY-MM-DDTHH:mm` (e.g.
-  `2026-09-23T14:05`) — readable directly in a SQL query later, and unique in
-  practice at this project's newsletter frequency (at most a few times a
-  month).
-- `published_to_newsletter_at` is set to the moment "סמן כנשלח" is clicked.
+- **Newsletter tab.** "צור ניוזלטר" renders a preview in Michal's browser and
+  writes nothing. Clicking "סמן כנשלח" afterwards writes, for every article
+  that was in that preview:
+  - `newsletter_batch_id`, set to the moment the preview was generated (not
+    the moment "סמן כנשלח" is clicked), formatted `YYYY-MM-DDTHH:mm` (e.g.
+    `2026-09-23T14:05`) — readable directly in a SQL query later, and unique
+    in practice at this project's newsletter frequency (at most a few times
+    a month).
+  - `published_to_newsletter_at`, set to the moment "סמן כנשלח" is clicked.
+- **Website tab.** "העתק כותרת" and "העתק תוכן" copy to the clipboard and
+  write nothing. Clicking "סמן כפורסם באתר" on that same article writes:
+  - `published_to_website_at`, set to the moment it is clicked.
 
-The per-item website copy button (the אתר tab's equivalent action) does not
-exist yet. When it is built, it should follow the same rule for the same
-reason: the system has no way to know whether Michal actually sent the mail
-or pasted the text, so only an explicit confirmation click may write — never
-the act of building a preview or a copy-paste block. Marking on generation
-would let a caught typo silently drop an article forever (it would never be
-offered again); marking only on explicit confirmation risks nothing worse
-than a duplicate if she forgets, and a duplicate is recoverable.
+---
+
+## Unused columns
+
+Two columns exist in the schema with no code anywhere meaningfully reading or
+writing them. Documented here so a future reader who finds them draws the
+right conclusion, instead of writing new code against a column nobody
+maintains:
+
+- **`publish_status`** (with its check constraint, default, and
+  `idx_content_items_publish_status` index) never carries any real
+  information. The Collector's `INSERT` (`collector/main.py`) does write the
+  literal string `'not_published'` into it on every new row — but that is
+  the same value the column's own `DEFAULT` would produce on its own, so the
+  `INSERT` is redundant with the schema, not a real write. No code anywhere,
+  in any component, ever sets it to any other value, and nothing reads it.
+  This is not an oversight to fix by starting to write it for real:
+  `publish_status` is a single column, and this is a two-channel product —
+  it cannot express "sent in the newsletter but not yet posted to the
+  website". That state is already carried correctly and separately by
+  `newsletter_batch_id` and `published_to_website_at` (see "Dashboard (as
+  Publisher)" above). Its index is therefore unused too. The column and
+  index are left in place rather than dropped — that would be a migration
+  for no benefit.
+- **`image_url`** is collected by no one and read by no one — a grep for it
+  across every Python and JS file in this project turns up nothing at all,
+  not even a comment. This is a decision, not an omission: per-article
+  images were deliberately excluded from the newsletter design (see
+  `sma-publisher/NOTES.md`, "Design decisions" — "Deliberately not in the
+  design: per-article images...").
 
 ---
 
@@ -364,33 +410,48 @@ When it fails, it updates:
 
 ### Dashboard workflow (publish)
 
-The Dashboard offers items for newsletter generation or website copy-paste where:
+The Dashboard offers items for newsletter generation or website copy-paste
+where (per tab on the /publish screen):
 
-- `review_status = 'approved'`
-- `publish_target != 'none'`
-- `publish_status = 'not_published'`
-- `newsletter_text_he IS NOT NULL`
+- **Newsletter tab:** `content_items` where `review_status = 'approved'`,
+  `publish_target IN ('newsletter', 'both')`, and `newsletter_batch_id IS
+  NULL` — an already-sent article stops being offered for a new batch, but
+  stays visible below in a separate "נשלחו בעבר" section (nothing
+  disappears).
+- **Website tab:** `content_items` where `review_status = 'approved'`,
+  `publish_target IN ('website', 'both')`, and `published_to_website_at IS
+  NULL` — mirrored: an already-published article stays visible under
+  "פורסמו בעבר".
 
-**Only the newsletter half of this is built.** Clicking "צור ניוזלטר" in the
-Dashboard renders a preview in Michal's browser and writes nothing — the two
-columns above are written only when she separately clicks "סמן כנשלח" after
-generating that preview, and only for the articles that were in it:
+Both tabs show an article before Pass 2 has produced `newsletter_text_he`
+too (so it isn't hidden while that is still pending), but gate their
+respective action on it: "צור ניוזלטר" is disabled while any article in the
+batch still has a null `newsletter_text_he`, and the website tab's content
+copy / mark-published actions don't render for an article that has none yet
+(its title-copy button still does — the title comes from Pass 1, not Pass 2).
 
-- `newsletter_batch_id` is set to the moment the preview was generated (not
-  the moment "סמן כנשלח" is clicked), formatted `YYYY-MM-DDTHH:mm` (e.g.
-  `2026-09-23T14:05`) — readable directly in a SQL query later, and unique in
-  practice at this project's newsletter frequency (at most a few times a
-  month).
-- `published_to_newsletter_at` is set to the moment "סמן כנשלח" is clicked.
+**Both channels are built the same deliberate way: generating a preview or
+copying to the clipboard never writes anything — only an explicit
+confirmation click does.** The system has no way to know whether Michal
+actually sent the newsletter or pasted the website copy, so marking on
+generation/copy would mean that previewing, spotting a typo, and closing the
+tab silently drops an article forever — it would never be offered again.
+Marking only on an explicit click risks the opposite mistake (she forgets,
+and the same article gets offered again later), but a duplicate is
+recoverable and silent loss is not.
 
-The per-item website copy button (the אתר tab's equivalent action) does not
-exist yet. When it is built, it should follow the same rule for the same
-reason: the system has no way to know whether Michal actually sent the mail
-or pasted the text, so only an explicit confirmation click may write — never
-the act of building a preview or a copy-paste block. Marking on generation
-would let a caught typo silently drop an article forever (it would never be
-offered again); marking only on explicit confirmation risks nothing worse
-than a duplicate if she forgets, and a duplicate is recoverable.
+- **Newsletter tab.** "צור ניוזלטר" renders a preview in Michal's browser and
+  writes nothing. Clicking "סמן כנשלח" afterwards writes, for every article
+  that was in that preview:
+  - `newsletter_batch_id`, set to the moment the preview was generated (not
+    the moment "סמן כנשלח" is clicked), formatted `YYYY-MM-DDTHH:mm` (e.g.
+    `2026-09-23T14:05`) — readable directly in a SQL query later, and unique
+    in practice at this project's newsletter frequency (at most a few times
+    a month).
+  - `published_to_newsletter_at`, set to the moment "סמן כנשלח" is clicked.
+- **Website tab.** "העתק כותרת" and "העתק תוכן" copy to the clipboard and
+  write nothing. Clicking "סמן כפורסם באתר" on that same article writes:
+  - `published_to_website_at`, set to the moment it is clicked.
 
 ---
 
@@ -443,14 +504,12 @@ Michal to generate a newsletter or copy it to the website from the Dashboard.
 ### 5. Sent in a newsletter
 
 Michal generated a newsletter that included this article and clicked "סמן
-כנשלח" (see "Dashboard (as Publisher)" above — only the newsletter half of
-publishing is built today, so this is the only way `content_items` reaches a
-"sent" state right now).
+כנשלח" (see "Dashboard (as Publisher)" above).
 
 - `processing_status = 'done'`
 - `review_status = 'approved'`
 - `publish_target = 'newsletter'` or `both`
-- `publish_status = 'not_published'` (not written by anything yet)
+- `publish_status = 'not_published'` (never actually written — see "Unused columns" above)
 - `newsletter_text_he` is set
 - `newsletter_batch_id` is set, to the newsletter's generation timestamp
 - `published_to_newsletter_at` is set
@@ -459,6 +518,23 @@ An article approved for the website only, or approved for both but not yet
 included in a sent newsletter, stays at `newsletter_batch_id = NULL` and is
 still offered on the /publish screen's ניוזלטר tab (if applicable) or אתר
 tab.
+
+### 6. Published to the website
+
+Michal copied this article's title and content into a WordPress post and
+clicked "סמן כפורסם באתר" (see "Dashboard (as Publisher)" above).
+
+- `processing_status = 'done'`
+- `review_status = 'approved'`
+- `publish_target = 'website'` or `both`
+- `publish_status = 'not_published'` (never actually written — see "Unused columns" above)
+- `newsletter_text_he` is set
+- `published_to_website_at` is set
+
+Independent of #5 above: an article routed to `both` can be sent in a
+newsletter, published to the website, both, or neither, in any order — each
+column is set only by its own tab's explicit confirmation click, and neither
+implies the other.
 
 ---
 

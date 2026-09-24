@@ -110,7 +110,7 @@ def build_prompt(article: Dict[str, Any]) -> str:
     return f"""
 You are triaging English-language SMA (spinal muscular atrophy) news for Michal, the
 director of an Israeli SMA patient association. She will read only what you produce
-here — not the source article — to decide whether this is interesting enough to
+here, not the source article, to decide whether this is interesting enough to
 follow up on. This is not the published version of the article; that is written
 separately, later, only for items she chooses to follow up on. Your only job here is
 to give her enough to make that "interesting or not" call accurately.
@@ -121,27 +121,29 @@ Return only valid JSON with exactly these string fields:
 - summary_he: a Hebrew summary of exactly 3 to 4 sentences.
 
 What summary_he must do:
-- State what happened, who it concerns (which patients — age group or SMA type, if
+- State what happened, who it concerns (which patients - age group or SMA type, if
   the article says), and what kind of item this is: a research finding, a
   regulatory decision, a treatment update, a community or advocacy item, or
   something else.
 - Be accurate above everything else. If the finding is preliminary, from an animal
   model (e.g. mice), or from a small study, say so explicitly. Never present
   something as more advanced, certain, or significant than the source material
-  supports — Michal must not approve something as a breakthrough that isn't one.
-  When the article gives a specific number or percentage, report it plainly — do
+  supports - Michal must not approve something as a breakthrough that isn't one.
+  When the article gives a specific number or percentage, report it plainly, and do
   not add a quantifier that overstates it (e.g. do not write "almost all" for 83%).
 - Contain only facts present in the article content below. Do not add, infer, or
   guess anything the article does not say.
-- Be written in plain, natural Hebrew for a non-medical reader — not academic
+- Be written in plain, natural Hebrew for a non-medical reader, not academic
   language, not press-release language. Strip promotional framing from the source:
   phrasing like "first-of-its-kind", "breakthrough", "revolutionary", or
-  "dual-mechanism approach" belongs to a company's announcement, not to this text —
-  state plainly what the treatment does instead.
+  "dual-mechanism approach" belongs to a company's announcement, not to this text,
+  so state plainly what the treatment does instead.
 - Use the Hebrew form commonly used for any drug or gene names, with the Latin name
   in parentheses on first mention where that helps a Hebrew reader recognize it.
-  Strip trademark symbols (™, ®) from drug and product names — they render badly
+  Strip trademark symbols (™, ®) from drug and product names - they render badly
   in right-to-left text.
+- Use a plain hyphen (-) for any dash in the Hebrew text; never an em dash. An em
+  dash reads as machine-translated to a Hebrew reader, not natural writing.
 - Proofread the Hebrew before returning it: no missing spaces between words, no
   doubled punctuation, no stray characters.
 
@@ -172,7 +174,7 @@ Return only valid JSON with exactly this string field:
 - newsletter_text_he: an original Hebrew piece conveying the article's content to a
   general Israeli audience with no medical background. Publishable as-is.
 
-This is NOT a translation. Write an original summary in your own words — do not
+This is NOT a translation. Write an original summary in your own words; do not
 mirror the article's structure or paragraph order, and do not quote it. The facts
 must come from the article; the writing must not.
 
@@ -182,29 +184,32 @@ Register:
   register.
 - For a drug name, gene, or other term a reader might encounter elsewhere in English
   or Latin, give the Hebrew and put the original in parentheses on first mention.
-  Strip trademark symbols (™, ®) from drug and product names — they render badly
+  Strip trademark symbols (™, ®) from drug and product names - they render badly
   in right-to-left text.
 - No academic phrasing, no press-release phrasing, no statistical notation. Strip
   promotional framing from the source: phrasing like "first-of-its-kind",
   "breakthrough", "revolutionary", or "dual-mechanism approach" belongs to the
-  company's announcement, not to this newsletter — state plainly what the treatment
-  does instead. Where the article gives numbers that matter to a reader (how many
-  participants, what proportion improved), state them in plain language.
+  company's announcement, not to this newsletter, so state plainly what the
+  treatment does instead. Where the article gives numbers that matter to a reader
+  (how many participants, what proportion improved), state them in plain language.
+- Use a plain hyphen (-) for any dash in the Hebrew text; never an em dash. An em
+  dash reads as machine-translated to a Hebrew reader, not natural writing, and
+  this text goes directly to families.
 
 Accuracy:
 - Contain only facts present in the article content below. Never add, infer, or
   guess anything the article does not say. When the article gives a specific number
-  or percentage, report it plainly — do not add a quantifier that overstates it
+  or percentage, report it plainly, and do not add a quantifier that overstates it
   (e.g. do not write "almost all" for 83%).
 - If a finding is preliminary, from an animal model, from a small study, or not yet
   approved for use, say so plainly. This community makes real decisions about
-  treatment — overstating a result is the worst failure this text could make.
+  treatment, so overstating a result is the worst failure this text could make.
 - Do not soften bad news and do not inflate good news.
 - Proofread the Hebrew before returning it: no missing spaces between words, no
   doubled punctuation, no stray characters.
 
 Length: let the content decide. Write what is needed to convey the article's main
-message completely and accessibly, and no more — in practice this is usually about
+message completely and accessibly, and no more, in practice this is usually about
 150-250 words. A thin source article (e.g. a short link-out post) should produce a
 short text; that is correct, never pad it out to reach a length. Do NOT:
 - open by restating the headline in different words,
@@ -212,7 +217,7 @@ short text; that is correct, never pad it out to reach a length. Do NOT:
 - close with an inflated sentence about what this means for the community,
 - repeat the same point in two places.
 
-Do not include URLs, "read more", a call to action, or a sign-off — the newsletter
+Do not include URLs, "read more", a call to action, or a sign-off - the newsletter
 template adds the source name and link separately.
 
 Article:

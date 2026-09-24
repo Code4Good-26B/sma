@@ -17,6 +17,15 @@
 // anything to the database. No React, no Supabase, no `new Date()` inside —
 // issueDate is a parameter, computed once by the caller
 // (formatIssueDateHe in ./newsletterTheme.js).
+//
+// One deliberate deviation from a verbatim port: both links (the per-article
+// "read more" and the donation button) carry target="_blank" rel="noopener"
+// here, which newsletter.html.j2 does not set. Found by testing this preview
+// inside an <iframe>: clicking a link without it navigated the iframe itself
+// away to the external site, which refused to load in a frame, destroying
+// the preview and forcing a regeneration. It is also the right behaviour in
+// a real inbox — the source article should not replace the reader's mail
+// client.
 import { THEME, STRINGS, LOGO_URL, DONATION_URL } from './newsletterTheme.js';
 
 const t = THEME;
@@ -74,7 +83,7 @@ function renderArticleCard(article) {
                 <td style="padding:22px 24px;">
                   <div style="font-family:${t.font}; font-size:20px; font-weight:800; line-height:1.2; color:${t.ink}; text-align:${START};">${title}</div>
 ${bodyHtml}
-                  <div style="margin-top:14px; text-align:${START};"><a href="${url}" style="font-family:${t.font}; font-size:15px; font-weight:700; color:${t.coral_ink}; text-decoration:none;">${s.read_more}</a></div>
+                  <div style="margin-top:14px; text-align:${START};"><a href="${url}" target="_blank" rel="noopener" style="font-family:${t.font}; font-size:15px; font-weight:700; color:${t.coral_ink}; text-decoration:none;">${s.read_more}</a></div>
                 </td>
               </tr>
             </table>
@@ -139,7 +148,7 @@ ${cardsHtml}            <div style="margin-top:18px; font-family:${t.font}; font
         <tr>
           <td align="center" bgcolor="${t.coral}" style="background:${t.coral}; padding:34px 44px;">
             <div style="max-width:380px; margin:0 auto 22px auto; font-family:${t.font}; font-size:25px; font-weight:800; line-height:1.25; color:${t.white};">${s.donation_heading}</div>
-            <a href="${DONATION_URL}" style="display:inline-block; background:${t.white}; color:${t.coral_deep}; font-family:${t.font}; font-size:17px; font-weight:700; text-decoration:none; padding:14px 30px; border-radius:999px;">${s.donation_button}</a>
+            <a href="${DONATION_URL}" target="_blank" rel="noopener" style="display:inline-block; background:${t.white}; color:${t.coral_deep}; font-family:${t.font}; font-size:17px; font-weight:700; text-decoration:none; padding:14px 30px; border-radius:999px;">${s.donation_button}</a>
           </td>
         </tr>
 

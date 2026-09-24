@@ -36,14 +36,18 @@ function App() {
       // which measured ~70% of the response payload on the live database
       // and is never displayed anywhere in this UI — keep it out even as
       // columns get added here (newsletter_text_he, reviewed_at,
-      // newsletter_batch_id, published_to_newsletter_at, for the
-      // publication-texts / newsletter screen).
+      // newsletter_batch_id, published_to_newsletter_at,
+      // published_to_website_at, for the publication-texts / publish
+      // screen). Deliberately NOT included: publish_status — see
+      // docs/db_contract.md ("Unused columns"), nothing writes it and this
+      // UI has no reason to read it either.
       const { data, error } = await supabase
         .from('content_items')
         .select(
           'id, source_name, source_url, published_at, created_at, ' +
           'title_he, summary_he, reviewed_title_he, reviewed_summary_he, ' +
           'newsletter_text_he, reviewed_at, newsletter_batch_id, published_to_newsletter_at, ' +
+          'published_to_website_at, ' +
           'review_status, processing_status, publish_target'
         )
         .order('published_at', { ascending: false });

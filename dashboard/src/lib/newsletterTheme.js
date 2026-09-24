@@ -39,7 +39,7 @@ export const STRINGS = {
   kicker: 'מהמחקר העולמי',
   section_heading: 'פרסומים אחרונים בתחום ה‑SMA',
   opener: (
-    'המחקר על SMA מתקדם בקצב שלא הכרנו — וכל פריצת דרך מתורגמת אצלנו לשאלה ' +
+    'המחקר על SMA מתקדם בקצב שלא הכרנו - וכל פריצת דרך מתורגמת אצלנו לשאלה ' + // deliberately a plain hyphen here, not publisher.py's em dash (that's the only reader-facing character changed anywhere in this file) — an em dash reads as machine-written to Hebrew readers, and this text goes to families; the fidelity check handles this one exception explicitly rather than loosening its word-for-word comparison
     'אחת: מה זה אומר עבור הילדים והמבוגרים שלנו, כאן ועכשיו.'
   ),
   read_more: 'להמשך קריאה ›',

@@ -5,14 +5,17 @@
 // deciding interesting/not; she reviews publication texts roughly monthly,
 // before sending — different mindset, different frequency.
 //
-// The website tab is where a per-item copy button lands — a later task,
-// which is why it still shows every matching approved article exactly as
-// before, with no "already sent" concept. The newsletter tab now has one:
-// an article stops being offered for a new newsletter once
-// newsletter_batch_id is set (NewsletterBuilder's "סמן כנשלח"), but it stays
-// visible below, under "נשלחו בעבר", instead of disappearing — a vanished
-// article is exactly the kind of silent behaviour this project avoids
-// everywhere else (docs/project_notes.md).
+// Both tabs now have an "already done" split, deliberately mirrored: an
+// article stops being offered for further action once the tab's own marker
+// column is set (newsletter_batch_id for ניוזלטר, published_to_website_at
+// for אתר), but it stays visible below, under its own "-ו בעבר" section,
+// instead of disappearing — a vanished article is exactly the kind of
+// silent behaviour this project avoids everywhere else
+// (docs/project_notes.md). The newsletter tab batches through
+// NewsletterBuilder; the website tab has no batch step at all — WordPress
+// has no API integration (see docs/project_notes.md), so Michal copies and
+// marks one article at a time, which is why its actions live directly on
+// each PublishItem (channel="website") instead of a page-level builder.
 import { useState } from 'react';
 import PublishItem from '../components/PublishItem';
 import NewsletterBuilder from '../components/NewsletterBuilder';
@@ -22,11 +25,15 @@ const TABS = [
     key: 'newsletter',
     label: 'ניוזלטר',
     matches: (a) => a.publish_target === 'newsletter' || a.publish_target === 'both',
+    isDone: (a) => Boolean(a.newsletter_batch_id),
+    doneSectionHeading: 'נשלחו בעבר',
   },
   {
     key: 'website',
     label: 'אתר',
     matches: (a) => a.publish_target === 'website' || a.publish_target === 'both',
+    isDone: (a) => Boolean(a.published_to_website_at),
+    doneSectionHeading: 'פורסמו בעבר',
   },
 ];
 
@@ -37,22 +44,17 @@ export default function PublishPage({ articles, onUpdate }) {
   const activeTabDef = TABS.find(t => t.key === activeTab);
   const tabArticles = approved.filter(activeTabDef.matches);
 
-  const isNewsletterTab = activeTab === 'newsletter';
-  const unsentNewsletterArticles = isNewsletterTab ? tabArticles.filter(a => !a.newsletter_batch_id) : [];
-  const sentNewsletterArticles = isNewsletterTab ? tabArticles.filter(a => a.newsletter_batch_id) : [];
-  const visibleArticles = isNewsletterTab ? unsentNewsletterArticles : tabArticles;
+  const pendingArticles = tabArticles.filter(a => !activeTabDef.isDone(a));
+  const doneArticles = tabArticles.filter(a => activeTabDef.isDone(a));
 
   return (
     <section>
       <div style={tabBarStyle}>
         {TABS.map(tab => {
-          // The newsletter tab's badge counts only what still needs
-          // action (unsent articles) — one already sent isn't something
-          // Michal needs to look at again, even though it stays visible
-          // further down the page.
-          const count = tab.key === 'newsletter'
-            ? approved.filter(tab.matches).filter(a => !a.newsletter_batch_id).length
-            : approved.filter(tab.matches).length;
+          // The badge counts only what still needs action — an article
+          // already sent/published isn't something Michal needs to look at
+          // again, even though it stays visible further down the page.
+          const count = approved.filter(tab.matches).filter(a => !tab.isDone(a)).length;
           const isActive = activeTab === tab.key;
           return (
             <button
@@ -67,24 +69,24 @@ export default function PublishPage({ articles, onUpdate }) {
         })}
       </div>
 
-      {isNewsletterTab && (
-        <NewsletterBuilder eligibleArticles={unsentNewsletterArticles} onUpdate={onUpdate} />
+      {activeTab === 'newsletter' && (
+        <NewsletterBuilder eligibleArticles={pendingArticles} onUpdate={onUpdate} />
       )}
 
-      {visibleArticles.map(article => (
-        <PublishItem key={article.id} article={article} onUpdate={onUpdate} />
+      {pendingArticles.map(article => (
+        <PublishItem key={article.id} article={article} onUpdate={onUpdate} channel={activeTab} />
       ))}
 
-      {isNewsletterTab && sentNewsletterArticles.length > 0 && (
+      {doneArticles.length > 0 && (
         <div style={sentSectionStyle}>
-          <h4 style={sentSectionHeadingStyle}>נשלחו בעבר</h4>
-          {sentNewsletterArticles.map(article => (
-            <PublishItem key={article.id} article={article} onUpdate={onUpdate} />
+          <h4 style={sentSectionHeadingStyle}>{activeTabDef.doneSectionHeading}</h4>
+          {doneArticles.map(article => (
+            <PublishItem key={article.id} article={article} onUpdate={onUpdate} channel={activeTab} />
           ))}
         </div>
       )}
 
-      {visibleArticles.length === 0 && sentNewsletterArticles.length === 0 && (
+      {pendingArticles.length === 0 && doneArticles.length === 0 && (
         <p style={{ color: '#888', textAlign: 'right', marginTop: '24px' }}>
           אין כתבות מאושרות ליעד זה.
         </p>
