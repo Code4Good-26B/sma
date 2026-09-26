@@ -4,7 +4,7 @@ This project runs unattended. There is no maintainer watching it day to day, so 
 folder exists to make the system keep itself alive and to give a non-technical person
 a way to check whether it's actually working.
 
-Two GitHub Actions workflows live in `.github/workflows/`.
+Three GitHub Actions workflows live in `.github/workflows/`.
 
 ---
 
@@ -66,59 +66,133 @@ secret**.
 
 ---
 
+## `publication-text.yml` — extra Pass 2 attempts, every 6 hours
+
+- **What it does:** runs ONLY `python processor/process_newsletter_text.py --limit 5` —
+  the exact same Pass 2 script `daily.yml` runs, nothing else. It never runs the
+  Collector and never runs Pass 1 (`process_from_db.py`) — see the three constraints
+  below.
+- **Schedule:** every 6 hours, at 02:23 / 08:23 / 14:23 / 20:23 UTC
+  (`cron: "23 2,8,14,20 * * *"`). Off the top of the hour for the same load-concentration
+  reason as `daily.yml`'s own minute offset.
+- **Manual run:** Actions tab → **Publication text (frequent)** → **Run workflow**.
+- **Why it exists:** Gemini availability is time-of-day dependent, and this project has
+  observed multi-day streaks of 503s. Pass 2 otherwise gets exactly one attempt per day;
+  a 503 at that one moment costs Michal a full day, and several such days in a row is
+  what she experiences as "the text never arrives". Sampling Gemini a few more times a
+  day, hours apart (not minutes — that samples almost the same conditions), meaningfully
+  shortens that wait without changing anything else about how Pass 2 works.
+- **It can never fail the workflow run, by design.** The Pass 2 step uses
+  `continue-on-error: true` — its true outcome (success/failure) and its full log are
+  still visible in the Actions UI exactly as normal, but the JOB's overall conclusion is
+  decoupled from it, which is what actually controls whether GitHub sends a failure
+  email. **This is not swallowing a real failure**: `daily.yml` runs the identical script
+  against the identical selection query once a day and DOES report failures normally, so
+  a real, non-transient problem still fails the daily pipeline and still sends the one
+  failure email this project has. This workflow is additional attempts, never the only
+  path to anything.
+- **It shares `daily.yml`'s exact concurrency group (`daily-pipeline`).** This guarantees
+  a frequent run can never overlap the daily run, or another frequent run. Two concurrent
+  Pass 2 runs would select the same rows (`newsletter_text_he IS NULL`) and spend Gemini
+  quota twice for one result.
+- **`--limit 5`, not `daily.yml`'s 10.** The Gemini quota is per **project**, shared with
+  Pass 1. This workflow can run up to 4 extra times a day on top of the daily run, so a
+  larger limit here risks a backlog of stuck publication texts burning quota overnight —
+  leaving Pass 1 with nothing left the next morning, so newly collected articles would
+  never even get triaged, let alone reach Michal. A queue stuck at the publishing stage
+  must not be able to hide fresh news from the triage stage.
+
+### Three constraints this workflow must never violate
+
+1. **No Pass 1.** `MAX_PROCESSING_ATTEMPTS = 14` (in `process_from_db.py`) was chosen
+   assuming one run per day — 14 attempts at once a day equals the 14-day tolerance
+   window this project is built around. Running Pass 1 four times a day would burn all
+   14 attempts in under three days, so a multi-day Gemini outage (already observed)
+   would permanently discard articles that today are simply retried. The retry counter
+   would become the destruction mechanism instead of the protection it's meant to be.
+2. **No Collector.** `smanewstoday.com` is behind Cloudflare bot protection that has
+   already blocked this project once (2026-09-20: a straight 403, and separately a page
+   that quietly parsed to zero articles). Fetching it four times a day instead of once
+   multiplies the chance of turning a temporary block into a permanent one, for no
+   benefit — the 14-day lookback already means once-daily collection loses nothing.
+3. **`--limit 5`, not 10.** See above.
+
+---
+
 ## `heartbeat.yml` — keeps the schedule itself alive
 
 **Read this even if you skip everything else on this page.**
 
 GitHub automatically **disables a scheduled workflow after 60 days with no
 repository activity**. This project is handed over with no ongoing maintainer, so
-nobody will be pushing commits — which means, without a countermeasure, the daily
-pipeline's schedule would silently stop working around month three, and nobody would
-notice.
+nobody will be pushing commits — which means, without a countermeasure, BOTH
+scheduled pipeline workflows' schedules (`daily.yml` and `publication-text.yml`)
+would silently stop working around month three, and nobody would notice.
 
 `heartbeat.yml` exists purely to prevent that. Once a month it:
 
 1. Writes the current UTC timestamp to `.github/last-heartbeat.txt` and commits it —
    a small, harmless change whose only job is to keep the repository "active" in
-   GitHub's eyes.
-2. As a second line of defense, explicitly re-enables the `daily.yml` workflow through
-   the GitHub API, in case it was ever disabled for some other reason.
+   GitHub's eyes (this protects every scheduled workflow in the repository, not
+   just one).
+2. As a second line of defense, explicitly re-enables both `daily.yml` and
+   `publication-text.yml` through the GitHub API, in case either was disabled for
+   some other reason.
 
 **It is not a health check.** It does not verify the pipeline is working — only that
 the schedule mechanism stays turned on. Do not delete this file thinking it's
-pointless busywork; deleting it will cause the daily pipeline to stop running roughly
-two months later, silently.
+pointless busywork; deleting it will cause both pipeline workflows to stop running
+roughly two months later, silently.
 
-### If the daily pipeline workflow is ever found disabled anyway
+### If a pipeline workflow is ever found disabled anyway
 
-Go to the **Actions** tab → **Daily pipeline** (in the left sidebar) → there will be
-a banner saying the workflow is disabled → click **Enable workflow**. That's the
-entire fix — one click.
+Go to the **Actions** tab → the workflow's name in the left sidebar (**Daily
+pipeline** or **Publication text (frequent)**) → there will be a banner saying the
+workflow is disabled → click **Enable workflow**. That's the entire fix — one click,
+for whichever of the two it was.
 
 ---
 
 ## What a failure email means (and doesn't mean)
 
 Every step's exit code is written to mean "a human needs to look at this" — not "one
-article had a bad day". Concretely:
+article had a bad day". As of 2026-09-26 this is decided by **why** an article failed,
+not by how many succeeded: a success count is a bad proxy for "systemic" at this
+project's volume (1-3 articles per run). One bad five-second window at Google can fail
+every article in a run and looks identical to a dead API key — this happened for real
+on 2026-09-24 (three articles, all HTTP 503) and would have emailed Michal every
+morning through a multi-day outage under the old rule.
 
-- **A partial run is NOT an email.** If some articles succeed and others fail in the
-  same run, that's treated as normal and self-correcting: a failed Pass 1 article is
-  automatically retried on a later run (up to 14 attempts total — chosen to match the
-  Collector's own 14-day lookback, since Gemini's free tier does not guarantee
-  capacity and live runs have shown multi-day outages across every fallback model at
-  once), and a failed Pass 2 article is retried indefinitely (it simply still has no
-  publication text, so it's picked up again tomorrow). The log will show a `NOTE:`
-  line explaining this, but the job exits 0 and no email is sent.
-- **An email means one of two things:**
-  1. **Nothing succeeded at all** in a step that had work to do — almost always a
-     systemic cause: a revoked or missing API key, Gemini being down, the database
-     being unreachable. Something is actually broken, not just one bad article.
-  2. **An article exhausted all 14 Pass 1 attempts.** Unlike an ordinary failure, this
-     is permanent — that article will never be picked up again, and Michal will never
-     see it — so it forces the email even if every other article in that run
-     succeeded. (Pass 2 has no such case: its retry is unlimited, so nothing is ever
-     permanently lost there.)
+- **Every Gemini failure is classified as `transient` or `not_transient`**
+  (`processor/gemini.py`, the `FailureKind` type), computed directly from the HTTP
+  status Gemini actually returned — never by parsing an error message string, so a
+  message-format change can't silently break this:
+  - **Transient** — a network error/timeout, HTTP 429 (rate limit), or any HTTP 5xx.
+    Another attempt, later, can succeed without anyone doing anything.
+  - **Not transient** — HTTP 401/403, any other 4xx, or a response that came back but
+    was unusable (bad JSON, a missing/empty field). The system will not recover by
+    itself.
+- **A run where every failure was transient is NOT an email**, no matter how many
+  articles failed. The log shows a `NOTE:` line saying how many will be retried and
+  why no alert was raised, but the job exits 0.
+- **An email means one of:**
+  1. **Any failure was not transient** — almost always a real, systemic cause: a
+     revoked or missing API key, or some other request-level problem that will not fix
+     itself by waiting.
+  2. **An article exhausted all 14 Pass 1 attempts** (`process_from_db.py`,
+     `MAX_PROCESSING_ATTEMPTS`). Permanent — that article will never be picked up
+     again, and Michal will never see it — so it forces the email even if every other
+     article in that run succeeded, and even if every individual failure was itself
+     transient (14 straight transient failures is still a permanent loss on the 14th).
+  3. **A Pass 2 article that was actually attempted and failed in this run has been
+     waiting since `reviewed_at` for more than 14 days**
+     (`process_newsletter_text.py`, `PASS2_FLOOR_DAYS`). Pass 2 has no attempt
+     counter — its retry is the daily re-selection itself, unlimited — so without
+     this floor a genuinely stuck article could fail silently forever as long as each
+     day's failure happened to look transient. **Articles skipped for empty
+     `raw_text` never count toward this floor**: such an article will never get a
+     publication text on any future run either, so counting it would mean emailing
+     about it every single day, forever.
 
 The reasoning behind this: the failure email is the *only* automatic signal this
 project has once handed over. If it fired on conditions that fix themselves tomorrow,
@@ -172,7 +246,11 @@ Two ways, and you don't need to be technical for the first one:
 
 1. **Actions tab → Daily pipeline → run history.** Green checkmark = that run
    succeeded (or had only self-healing partial failures). Red X = something needs
-   attention (and an email should already have gone out).
+   attention (and an email should already have gone out). **This does not apply to
+   Publication text (frequent)'s run history** — by design (see above), that
+   workflow's job always shows green even when its Pass 2 attempt failed, so its
+   run history tells you nothing; Daily pipeline's own run history and email are
+   still the real signal.
 2. **The `collector_runs` database table** (Collector only — the two processor passes
    don't have an equivalent table yet). Every Collector run — scheduled or manual —
    writes a row here with its status, how many articles it found, and how many it
@@ -189,5 +267,6 @@ Two ways, and you don't need to be technical for the first one:
 | File | Why it matters |
 |---|---|
 | `workflows/daily.yml` | The actual daily job: Collector, then Pass 1, then Pass 2. |
-| `workflows/heartbeat.yml` | Keeps `daily.yml`'s schedule from being auto-disabled after 60 days. |
+| `workflows/publication-text.yml` | Extra Pass-2-only attempts every 6 hours. Safe to delete without losing correctness — `daily.yml` still does the same work and still alerts on real failures — but removing it lengthens Michal's wait during a Gemini outage. |
+| `workflows/heartbeat.yml` | Keeps `daily.yml`'s (and `publication-text.yml`'s) schedules from being auto-disabled after 60 days. |
 | `last-heartbeat.txt` | Written by `heartbeat.yml`; harmless, but don't remove the workflow that maintains it. |

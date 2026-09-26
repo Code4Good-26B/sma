@@ -6,15 +6,16 @@ name: Heartbeat
 # repository activity (https://docs.github.com/en/actions/using-workflows/
 # events-that-trigger-workflows#schedule). This project is handed over to a
 # nonprofit with no ongoing maintainer, so nobody will be pushing commits —
-# which means the daily pipeline's schedule (daily.yml) WILL be silently
-# disabled by GitHub around month three, and nobody will notice, because the
-# whole point of automating the pipeline was that nobody has to watch it.
+# which means BOTH scheduled pipeline workflows (daily.yml, and
+# publication-text.yml added 2026-09-26) WILL be silently disabled by GitHub
+# around month three, and nobody will notice, because the whole point of
+# automating the pipeline was that nobody has to watch it.
 #
 # This workflow is NOT a health check and NOT a test of the daily pipeline.
 # Its only purpose is to make one small, harmless commit each month so the
-# repository always shows recent activity, keeping daily.yml eligible to
-# keep running on schedule. As a second line of defense, it also explicitly
-# re-enables the daily pipeline workflow via the GitHub API in case it was
+# repository always shows recent activity, keeping both pipeline workflows
+# eligible to keep running on schedule. As a second line of defense, it also
+# explicitly re-enables each of them via the GitHub API in case one was
 # already disabled for some other reason.
 #
 # Do not remove this file unless you replace it with something else that
@@ -60,15 +61,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Re-enable the daily pipeline workflow (belt and braces)
+      - name: Re-enable the pipeline workflows (belt and braces)
         # Whether a bot-authored commit resets GitHub's 60-day inactivity
         # clock is not clearly documented, so this step does not rely on
-        # that alone: it explicitly re-enables daily.yml through the
-        # API every month. A no-op if it's already enabled. continue-on-error
-        # so a GitHub API change here can never break the commit step above.
+        # that alone: it explicitly re-enables both scheduled pipeline
+        # workflows through the API every month. A no-op if they're already
+        # enabled. Both daily.yml and publication-text.yml (added
+        # 2026-09-26) run Pass 2 on a schedule and must not be allowed to go
+        # silently disabled the same way daily.yml could. continue-on-error
+        # so a GitHub API change here can never break the commit step above,
+        # and one workflow's enable call failing can't block the other's.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # `|| true` on each line, not just continue-on-error on the step:
+          # the default `bash -e` for `run:` steps would otherwise abort the
+          # whole script on the FIRST failing command, silently skipping the
+          # second workflow's enable call entirely.
           gh api --method PUT \
-            "repos/${{ github.repository }}/actions/workflows/daily.yml/enable"
+            "repos/${{ github.repository }}/actions/workflows/daily.yml/enable" || true
+          gh api --method PUT \
+            "repos/${{ github.repository }}/actions/workflows/publication-text.yml/enable" || true

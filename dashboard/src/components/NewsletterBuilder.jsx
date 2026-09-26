@@ -19,6 +19,7 @@
 import { useState } from 'react';
 import { buildNewsletterHtml, buildNewsletterPlainText } from '../lib/buildNewsletterHtml';
 import { formatIssueDateHe } from '../lib/newsletterTheme';
+import { selectNewsletterBatch } from '../lib/selectNewsletterBatch';
 
 export default function NewsletterBuilder({ eligibleArticles, onUpdate }) {
   const [preview, setPreview] = useState(null); // { html, plainText, articleIds, generatedAt }
@@ -27,14 +28,19 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate }) {
   const [marking, setMarking] = useState(false);
   const [markResult, setMarkResult] = useState(null); // { ok, total } | null
 
-  const missingTextCount = eligibleArticles.filter(
-    (a) => !a.newsletter_text_he || !a.newsletter_text_he.trim()
-  ).length;
-  const canGenerate = eligibleArticles.length > 0 && missingTextCount === 0;
+  const {
+    included: articlesWithText,
+    excluded: articlesMissingText,
+    canGenerate,
+    generateLabel,
+  } = selectNewsletterBatch(eligibleArticles);
 
   const handleGenerate = () => {
     const generatedAt = new Date();
-    const mapped = eligibleArticles.map((a) => ({
+    // articlesWithText, not eligibleArticles: this is the one and only
+    // place the sent batch is built, from the one and only filtered list —
+    // see the comment on articlesWithText above.
+    const mapped = articlesWithText.map((a) => ({
       title: a.reviewed_title_he ?? a.title_he ?? '',
       url: a.source_url,
       text: a.newsletter_text_he ?? '',
@@ -43,7 +49,7 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate }) {
     setPreview({
       html: buildNewsletterHtml(mapped, issueDate),
       plainText: buildNewsletterPlainText(mapped, issueDate),
-      articleIds: eligibleArticles.map((a) => a.id),
+      articleIds: articlesWithText.map((a) => a.id),
       generatedAt,
     });
     setCopyState(null);
@@ -120,16 +126,35 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate }) {
     <div style={builderCardStyle}>
       <div style={topRowStyle}>
         <button style={generateBtnStyle} disabled={!canGenerate} onClick={handleGenerate}>
-          צור ניוזלטר
+          {generateLabel}
         </button>
         {!canGenerate && (
           <span style={disabledNoteStyle}>
             {eligibleArticles.length === 0
               ? 'אין כתבות שממתינות לשליחה בניוזלטר.'
-              : `${missingTextCount} מתוך ${eligibleArticles.length} כתבות עדיין ללא טקסט לפרסום — יש להמתין להרצה הבאה או לבדוק אותן בהמשך הרשימה.`}
+              : 'אף אחת מהכתבות הממתינות עדיין לא קיבלה טקסט לפרסום — יש להמתין להרצה הבאה.'}
           </span>
         )}
       </div>
+
+      {/* Named by title, not just counted — a number alone doesn't let
+          Michal tell WHICH article is missing and decide whether it's worth
+          waiting for. Shown whenever any article is left out, whether or
+          not that leaves generation possible at all. */}
+      {articlesMissingText.length > 0 && (
+        <div style={missingListStyle}>
+          <p style={missingListHeadingStyle}>
+            {canGenerate
+              ? 'הכתבות הבאות עדיין ללא טקסט לפרסום ולא ייכללו בניוזלטר הזה (יוצעו שוב בהרצה הבאה):'
+              : 'הכתבות הבאות עדיין ללא טקסט לפרסום:'}
+          </p>
+          <ul style={missingListUlStyle}>
+            {articlesMissingText.map((a) => (
+              <li key={a.id}>{a.reviewed_title_he ?? a.title_he ?? '(ללא כותרת)'}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {preview && (
         <div style={previewWrapStyle}>
@@ -203,6 +228,28 @@ const disabledNoteStyle = {
   fontSize: '0.85rem',
   color: 'var(--text)',
   opacity: 0.75,
+};
+
+const missingListStyle = {
+  marginTop: '12px',
+  padding: '10px 14px',
+  borderRadius: '6px',
+  background: 'rgba(245, 158, 11, 0.10)',
+  border: '1px solid rgba(245, 158, 11, 0.3)',
+};
+
+const missingListHeadingStyle = {
+  margin: 0,
+  fontSize: '0.85rem',
+  color: '#b45309',
+  fontWeight: 600,
+};
+
+const missingListUlStyle = {
+  margin: '6px 0 0 0',
+  paddingInlineStart: '20px',
+  fontSize: '0.85rem',
+  color: '#b45309',
 };
 
 const previewWrapStyle = {

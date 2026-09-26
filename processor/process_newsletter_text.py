@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import time
 
@@ -53,6 +54,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor import __version__
 from processor.gemini import PUBLICATION_MODEL_CANDIDATES, generate_newsletter_text, mock_newsletter_text
+
+# Pass 2 has no attempt counter (see _fetch_eligible below) — its retry is
+# the daily re-selection itself, unlimited. That means it has no equivalent
+# of Pass 1's "exhausted all MAX_PROCESSING_ATTEMPTS" floor to force an
+# alert when a permanent loss is quietly accumulating. This is that floor,
+# measured in elapsed time instead of attempt count: an article that was
+# actually attempted and failed in this run, and has been waiting for its
+# publication text since `reviewed_at` for more than this many days, forces
+# an alert.
+#
+# 14, the same number as LOOKBACK_DAYS (collector/config.py) and
+# MAX_PROCESSING_ATTEMPTS (process_from_db.py), for the same reason: the
+# system may be broken for two weeks and lose nothing. A shorter number
+# would start alerting during an outage this project is explicitly built to
+# absorb; a longer one would let a genuinely stuck article go unnoticed for
+# longer than the rest of the system tolerates.
+PASS2_FLOOR_DAYS = 14
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +119,8 @@ def _fetch_eligible(cur, limit: int | None) -> list[dict]:
             source_url,
             published_at,
             title_en,
-            raw_text
+            raw_text,
+            reviewed_at
         FROM content_items
         WHERE review_status = 'approved'
           AND publish_target <> 'none'
@@ -185,6 +204,15 @@ def main(argv: list[str] | None = None) -> int:
     succeeded = 0
     failed = 0
     skipped_empty = 0
+    # Which REASON articles failed for — see processor/gemini.py's
+    # FailureKind and the exit-code logic at the bottom of this file.
+    transient_failures = 0
+    not_transient_failures = 0
+    # Pass 2's floor (see PASS2_FLOOR_DAYS above): articles that were
+    # actually attempted and failed in THIS run, and have been waiting since
+    # reviewed_at for longer than the floor.
+    floor_exceeded = 0
+    floor_exceeded_ids: list[str] = []
 
     try:
         with conn.cursor() as cur:
@@ -205,6 +233,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Title: {title_preview}")
 
             if not (row["raw_text"] or "").strip():
+                # SKIPPED, not failed — and that distinction is load-bearing,
+                # not cosmetic. An article with empty raw_text will NEVER get
+                # a publication text (a known limitation, see
+                # docs/project_notes.md): there is nothing to send to Gemini,
+                # ever, on any future run either. If this counted toward the
+                # PASS2_FLOOR_DAYS floor below, it would eventually cross the
+                # threshold and this script would email about it every
+                # single day forever — recreating, exactly, the alert-
+                # fatigue failure mode this whole task exists to cure. It is
+                # therefore excluded from failed/transient/not_transient and
+                # from the floor entirely, by simply `continue`-ing before
+                # any of that bookkeeping runs.
                 print("  Skipped: raw_text is empty — nothing to send to Gemini.")
                 skipped_empty += 1
                 continue
@@ -213,6 +253,10 @@ def main(argv: list[str] | None = None) -> int:
             status_ok = False
             error_message: str | None = None
             model_used: str | None = None
+            # Conservative default — see process_from_db.py's identical
+            # comment. Only overridden below when Gemini positively
+            # classifies its own failure as transient.
+            failure_kind = "not_transient"
 
             # The Gemini call either produced usable output or it did not —
             # nothing after that point (logging, formatting, terminal
@@ -231,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
                     result = generate_newsletter_text(article, api_key=gemini_key, model=args.model)
                     if result.error:
                         error_message = result.error
+                        failure_kind = result.failure_kind or "not_transient"
                     else:
                         newsletter_text_he = result.outputs.get("newsletter_text_he", "")
                         status_ok = True
@@ -260,11 +305,31 @@ def main(argv: list[str] | None = None) -> int:
                 conn.rollback()
                 print(f"  ERROR: Failed to save to DB: {e}", file=sys.stderr)
                 status_ok = False
+                # Same reasoning as process_from_db.py: a DB write failure
+                # does not fix itself on a later Gemini call.
+                failure_kind = "not_transient"
 
             if status_ok:
                 succeeded += 1
             else:
                 failed += 1
+                if failure_kind == "transient":
+                    transient_failures += 1
+                else:
+                    not_transient_failures += 1
+
+                # The floor (see PASS2_FLOOR_DAYS above): only articles that
+                # were actually attempted and failed reach this line at all
+                # (skipped ones `continue`d above, before any of this). A
+                # NULL reviewed_at means the floor cannot be measured for
+                # this article — nothing to count the 14 days from — so it
+                # is deliberately excluded rather than guessed at.
+                reviewed_at = row.get("reviewed_at")
+                if reviewed_at is not None:
+                    age = datetime.now(timezone.utc) - reviewed_at
+                    if age > timedelta(days=PASS2_FLOOR_DAYS):
+                        floor_exceeded += 1
+                        floor_exceeded_ids.append(article_id)
 
             if not args.mock_llm and args.delay > 0 and i < len(rows) - 1:
                 time.sleep(args.delay)
@@ -279,27 +344,57 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Processed      : {succeeded + failed}")
     print(f"Succeeded      : {succeeded}")
     print(f"Failed         : {failed}")
+    print(f"  transient     : {transient_failures}")
+    print(f"  not transient : {not_transient_failures}")
     print(f"Skipped (empty): {skipped_empty}")
+    print(
+        f"Waiting >{PASS2_FLOOR_DAYS}d, attempted+failed: {floor_exceeded}"
+        + (f" ({', '.join(floor_exceeded_ids)})" if floor_exceeded_ids else "")
+    )
 
     # Exit code is the only signal this project has when it runs unattended, so it
     # must mean "a human needs to look at this", not "one article had a bad day".
+    # It is decided by WHY articles failed, not how many succeeded — a success
+    # count is a bad proxy for "systemic" at this project's volume (roughly 7
+    # approved articles a month): one bad five-second window at Google can
+    # fail every article in a run and looks identical to a dead API key.
     #
-    #   failed > 0 while succeeded > 0  -> partial. The failed articles are picked
-    #     up by the next daily run (the DB query is itself the retry), so this is
-    #     a normal, self-correcting outcome and exits 0.
-    #   failed > 0 and succeeded == 0   -> nothing worked at all. Almost always a
-    #     systemic cause (bad key, API down, DB unreachable), so exit 1.
+    #   every failure transient (network error, 429, or 5xx) -> exit 0. Another
+    #     attempt, later — the daily run, or the frequent publication-text
+    #     workflow — can succeed without anyone doing anything, since the
+    #     selection query (newsletter_text_he IS NULL) is itself the retry.
+    #   any failure NOT transient (401/403, other 4xx, an unusable response, an
+    #     unexpected exception, or a DB write failure) -> exit 1.
     #
-    # Unlike Pass 1, there is no attempt counter here by design (see
-    # _fetch_eligible) — the retry is unlimited, so there is no permanent-loss
-    # case to force exit 1 the way an exhausted Pass 1 article does.
-    if failed > 0 and succeeded == 0:
+    # Unlike Pass 1, there is no attempt COUNTER here by design (see
+    # _fetch_eligible) — the retry is unlimited. But unlimited retries with no
+    # floor at all would mean a permanently-stuck article (e.g. every model
+    # consistently rejecting one specific article's content) could fail
+    # silently forever as long as each individual failure looked transient.
+    # PASS2_FLOOR_DAYS is that floor, measured in elapsed time since
+    # reviewed_at instead of an attempt count, checked FIRST (same position
+    # as Pass 1's `exhausted` check) so it forces exit 1 even when every
+    # individual failure this run was itself transient.
+    if floor_exceeded > 0:
+        print(
+            f"ALERT: {floor_exceeded} article(s) have been waiting more than "
+            f"{PASS2_FLOOR_DAYS} days since approval for a publication text, and "
+            f"failed again this run: {', '.join(floor_exceeded_ids)}"
+        )
+        return 1
+
+    if not_transient_failures > 0:
+        print(
+            f"ALERT: {not_transient_failures} article(s) failed for a reason that will "
+            f"not fix itself (see the Gemini/DB errors above) — exiting 1."
+        )
         return 1
 
     if failed > 0:
         print(
-            f"NOTE: {failed} article(s) failed but {succeeded} succeeded — exiting 0. "
-            f"Failed articles are retried by the next run."
+            f"NOTE: {failed} article(s) failed, all for transient reasons (network "
+            f"error, rate limit, or a temporary Gemini outage) — they will be retried "
+            f"by a later run. Exiting 0, no alert."
         )
 
     return 0

@@ -1,0 +1,91 @@
+name: Publication text (frequent)
+
+# Extra attempts at Pass 2 ONLY (processor/process_newsletter_text.py), a few
+# times a day instead of once. Gemini availability is time-of-day dependent —
+# a 503 at the daily run's one moment costs Michal a full day before the next
+# attempt, and this project has observed multi-day streaks of exactly that.
+# Retrying a few hours later samples genuinely different conditions.
+#
+# WHY THIS WORKFLOW IS ALLOWED TO BE SILENT (see the concurrency + step
+# config below): the daily pipeline (daily.yml) runs the SAME script against
+# the SAME selection query (newsletter_text_he IS NULL) every day, and DOES
+# report failures — a non-transient Gemini error, or an article stuck past
+# the 14-day floor, still fails daily.yml's job and still sends the one
+# failure email this project has. This workflow is therefore never the only
+# path to anything: at worst, it does nothing extra and the daily pipeline's
+# own reporting still catches a real problem the next morning. A future
+# reader seeing this workflow set to always succeed should not read that as
+# an oversight — it is deliberate, for exactly this reason. See
+# docs/project_notes.md and .github/README.md for the full alerting
+# philosophy this implements.
+#
+# Do NOT add the Collector or Pass 1 (process_from_db.py) to this workflow.
+# See the three constraints documented in .github/README.md — briefly:
+# Pass 1's MAX_PROCESSING_ATTEMPTS=14 assumes one run per day (running it
+# 4x/day would burn all 14 attempts in under 3 days, turning the retry
+# budget into a destruction mechanism during exactly the kind of multi-day
+# outage it exists to survive), and the Collector's source SMA News Today is
+# behind Cloudflare bot protection that has already blocked this project
+# once — hitting it 4x/day instead of once multiplies the chance of turning
+# a temporary block into a permanent one, for zero benefit given the
+# 14-day lookback already loses nothing at once-daily collection.
+
+on:
+  schedule:
+    # Every 6 hours, off the top of the hour for the same reason daily.yml's
+    # minute is offset (GitHub's own docs say scheduled-run load concentrates
+    # at :00; cheap to try, not guaranteed to help). Times are UTC, always,
+    # regardless of any daylight-saving change.
+    - cron: "23 2,8,14,20 * * *"
+  workflow_dispatch: {}
+
+# Byte-identical to daily.yml's concurrency group, deliberately: this is what
+# guarantees a frequent run can never overlap the daily run, or another
+# frequent run. Two concurrent Pass 2 runs would select the same NULL rows
+# and spend Gemini quota twice for one result — the same quota Pass 1 and the
+# daily Pass 2 step also draw from.
+concurrency:
+  group: daily-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # Short on purpose: this does far less than the daily job (one script,
+    # a handful of articles) and does not need daily.yml's 75-minute ceiling.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write newsletter texts (Pass 2, extra attempt)
+        # continue-on-error, not `|| true` in the run command: this is the
+        # explicit, visible GitHub Actions mechanism for "this step's exit
+        # code must not fail the job." The full stdout/stderr log is still
+        # written and still readable in the Actions UI exactly as it would
+        # be otherwise, and the step itself is still shown with its true
+        # outcome (success/failure) in the run summary — only the JOB's
+        # overall conclusion is decoupled from it, which is what actually
+        # controls whether GitHub sends a failure email. Piping to /dev/null
+        # or appending `|| true` to the shell command would hide the exit
+        # code and, done carelessly, the output too; this does neither.
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        # --limit 5, not 10 (daily.yml's number): the Gemini quota is per
+        # PROJECT and shared with Pass 1. This workflow runs up to 4 extra
+        # times a day on top of the daily run, so a larger limit here risks
+        # a backlog of stuck publication texts burning quota overnight,
+        # leaving Pass 1 with nothing left the next morning — newly
+        # collected articles would then never even get triaged, let alone
+        # appear for Michal. A queue stuck at the publishing stage must not
+        # be able to hide fresh news from the triage stage.
+        run: python processor/process_newsletter_text.py --limit 5

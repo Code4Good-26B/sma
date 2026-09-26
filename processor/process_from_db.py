@@ -188,6 +188,14 @@ def main(argv: list[str] | None = None) -> int:
     retries = 0
     exhausted = 0
     exhausted_ids: list[str] = []
+    # Which REASON articles failed for, not just how many — see
+    # processor/gemini.py's FailureKind. This is what decides the exit code
+    # below, not the success count: a success count is a bad proxy for
+    # "systemic" at this project's volume (1-3 articles/run), where one bad
+    # five-second window at Google fails every article in the run and looks
+    # identical to a dead API key.
+    transient_failures = 0
+    not_transient_failures = 0
 
     try:
         with conn.cursor() as cur:
@@ -215,6 +223,12 @@ def main(argv: list[str] | None = None) -> int:
             status = "failed"
             error_message: str | None = None
             model_used: str | None = None
+            # Conservative default: only overridden below when a Gemini call
+            # positively classifies itself as transient (processor/gemini.py,
+            # FailureKind). An unexpected exception here, or a DB write
+            # failure further down, is exactly the kind of thing a human
+            # should look at — not something to assume will fix itself.
+            failure_kind = "not_transient"
 
             # The Gemini call either produced usable output or it did not —
             # nothing after that point (logging, formatting, terminal
@@ -234,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
                     result = generate_hebrew_outputs(article, api_key=gemini_key, model=args.model)
                     if result.error:
                         error_message = result.error
+                        failure_kind = result.failure_kind or "not_transient"
                     else:
                         title_he = result.outputs.get("title_he", "")
                         summary_he = result.outputs.get("summary_he", "")
@@ -284,11 +299,19 @@ def main(argv: list[str] | None = None) -> int:
                 conn.rollback()
                 print(f"  ERROR: Failed to save to DB: {e}", file=sys.stderr)
                 status = "failed"
+                # A DB write failure is not something a later Gemini call
+                # fixes on its own — treat it the same as any other
+                # not-transient failure.
+                failure_kind = "not_transient"
 
             if status == "done":
                 succeeded += 1
             else:
                 failed += 1
+                if failure_kind == "transient":
+                    transient_failures += 1
+                else:
+                    not_transient_failures += 1
 
             if not args.mock_llm and args.delay > 0 and i < len(rows) - 1:
                 time.sleep(args.delay)
@@ -303,22 +326,31 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Processed : {succeeded + failed}")
     print(f"Succeeded : {succeeded}")
     print(f"Failed    : {failed}")
+    print(f"  transient     : {transient_failures}")
+    print(f"  not transient : {not_transient_failures}")
     print(f"Retries   : {retries}")
     print(f"Exhausted : {exhausted}" + (f" ({', '.join(exhausted_ids)})" if exhausted_ids else ""))
 
     # Exit code is the only signal this project has when it runs unattended, so it
     # must mean "a human needs to look at this", not "one article had a bad day".
+    # It is decided by WHY articles failed, not how many succeeded — a success
+    # count is a bad proxy for "systemic" at this project's volume (1-3
+    # articles/run): one bad five-second window at Google fails every article
+    # in the run and looks identical to a dead API key.
     #
-    #   failed > 0 while succeeded > 0  -> partial. The failed articles are picked
-    #     up by the next daily run (the DB query is itself the retry), so this is
-    #     a normal, self-correcting outcome and exits 0.
-    #   failed > 0 and succeeded == 0   -> nothing worked at all. Almost always a
-    #     systemic cause (bad key, API down, DB unreachable), so exit 1.
+    #   every failure transient (network error, 429, or 5xx) -> exit 0. Another
+    #     attempt, later, can succeed without anyone doing anything — the DB
+    #     query is itself the retry, so this is normal and self-correcting.
+    #   any failure NOT transient (401/403, other 4xx, an unusable response, an
+    #     unexpected exception, or a DB write failure) -> exit 1. The system
+    #     will not recover by itself; a human must act.
     #
-    # Pass 1 has one more case beyond that: an article that fails its final
-    # attempt (processing_attempts reaches MAX_PROCESSING_ATTEMPTS) is never
-    # retried again — a permanent loss, not a self-healing one — so it forces
-    # exit 1 even when every other article in the run succeeded.
+    # Pass 1 has one more case beyond that, checked first: an article that
+    # fails its final attempt (processing_attempts reaches
+    # MAX_PROCESSING_ATTEMPTS) is never retried again — a permanent loss, not
+    # a self-healing one — so it forces exit 1 even when every other article
+    # in the run succeeded, and even if every failure was transient (14
+    # straight transient failures is still a permanent loss on the 14th).
     if exhausted > 0:
         print(
             f"ALERT: {exhausted} article(s) exhausted all {MAX_PROCESSING_ATTEMPTS} "
@@ -326,13 +358,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    if failed > 0 and succeeded == 0:
+    if not_transient_failures > 0:
+        print(
+            f"ALERT: {not_transient_failures} article(s) failed for a reason that will "
+            f"not fix itself (see the Gemini/DB errors above) — exiting 1."
+        )
         return 1
 
     if failed > 0:
         print(
-            f"NOTE: {failed} article(s) failed but {succeeded} succeeded — exiting 0. "
-            f"Failed articles are retried by the next run."
+            f"NOTE: {failed} article(s) failed, all for transient reasons (network "
+            f"error, rate limit, or a temporary Gemini outage) — they will be retried "
+            f"by the next run. Exiting 0, no alert."
         )
 
     return 0

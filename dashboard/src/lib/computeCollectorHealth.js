@@ -21,7 +21,7 @@ const STALE_AFTER_MS = 2 * 24 * 60 * 60 * 1000;
  *   status: 'running' | 'success' | 'partial' | 'failed',
  *   items_seen?: number,
  *   items_inserted?: number,
- *   sources?: Array<{ name: string, status: string, [key: string]: any }> | null,
+ *   sources?: Array<{ name: string, status: string, listed?: number, [key: string]: any }> | null,
  *   error_message?: string | null,
  * }>} runs - rows from collector_runs, most-recent-first is assumed but not
  *   required (this function sorts defensively).
@@ -92,13 +92,31 @@ export function computeCollectorHealth(runs, now) {
   // The *last-ok time* for each currently-configured source is still looked
   // up across the whole fetched window — a source can be configured today
   // but simply not have reported 'ok' recently.
+  //
+  // A source counts as OK at a given run only when it reported status 'ok'
+  // AND a non-zero `listed`. `status === 'ok'` alone is not enough: it only
+  // means collect_source didn't raise, and a blocked or redesigned source
+  // can return a page that parses to zero articles with no HTTP error at
+  // all (observed live: smanewstoday.com did exactly this on 2026-09-20 and
+  // 2026-09-21) — collect_source still records that as status 'ok'. `listed`
+  // is the right signal here, not `inserted`: `listed` is what the source's
+  // listing page displayed, BEFORE the duplicate check and the early-stop,
+  // so a working listing page in a genuinely quiet week still lists its
+  // existing articles — `listed` stays positive even when nothing is new.
+  // `inserted = 0` is normal and must not be treated as a fault; `listed = 0`
+  // never means "quiet week", it always means "we could not see this
+  // source". `Number(...)` guards an older row where `listed` might be
+  // absent or non-numeric: it coerces to NaN, and `NaN > 0` is false, so a
+  // row that can't positively confirm a non-zero listing simply doesn't
+  // count as OK rather than throwing.
   const lastOkBySource = new Map();
   for (const run of sorted) {
     const sources = Array.isArray(run.sources) ? run.sources : [];
     for (const s of sources) {
       const name = s?.name;
       if (!name) continue;
-      if (s.status === 'ok' && !lastOkBySource.has(name)) {
+      const listed = Number(s.listed);
+      if (s.status === 'ok' && listed > 0 && !lastOkBySource.has(name)) {
         lastOkBySource.set(name, run.finished_at ?? run.started_at);
       }
     }

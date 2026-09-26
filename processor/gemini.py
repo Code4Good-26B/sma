@@ -6,9 +6,31 @@ import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import certifi
+
+# A small closed set, not a free string, so a caller (a processor pass
+# deciding whether to alert) can switch on it exhaustively instead of
+# parsing an error message — which must never happen, since a message-
+# format change would then silently break alerting.
+#
+#   "transient"     — another attempt, later, can succeed without anyone
+#                      doing anything: a network error/timeout, HTTP 429
+#                      (rate limit — the quota window moves on), or any HTTP
+#                      5xx (the server's own problem, not the request's).
+#   "not_transient"  — the system will not recover by itself; a human must
+#                      act: HTTP 401/403 (the key itself), any other 4xx
+#                      (the request itself is somehow wrong), or a response
+#                      that came back but was unusable (bad JSON, a missing
+#                      or empty field — retrying the exact same request
+#                      against the exact same model is not expected to fix
+#                      that either).
+#
+# This distinction — not a success count — is what a caller uses to decide
+# whether an email is sent. See docs/project_notes.md on why a success count
+# is a bad proxy for "systemic" at this project's volume.
+FailureKind = Literal["transient", "not_transient"]
 
 
 # Two separate lists, not one, because the two passes have different failure
@@ -77,6 +99,11 @@ class GeminiResult:
     # `-latest` alias moves to a new generation, diagnosable instead of
     # mysterious.
     model: str | None = None
+    # None on success. On failure, always one of FailureKind — see that
+    # type's comment above for the rule. Defaulted to None so every existing
+    # construction site (including the success path, which never sets this)
+    # keeps working unchanged.
+    failure_kind: FailureKind | None = None
 
 
 @dataclass(frozen=True)
@@ -293,6 +320,23 @@ def _call_gemini(
     return _CallResult(outputs=outputs, error=None, http_status=None)
 
 
+def _classify_failure(call: _CallResult) -> FailureKind:
+    """Classify one failed call as transient or not — see FailureKind above.
+
+    A network error/timeout, 429 (rate limit), or any 5xx is transient.
+    Everything else — 401/403, any other 4xx, or a call that came back with
+    no http_status at all (an unusable response: bad JSON or a missing/empty
+    field, see _call_gemini) — is not transient: retrying the identical
+    request against the identical model is not expected to change the
+    outcome.
+    """
+    if call.is_network_error:
+        return "transient"
+    if call.http_status == 429 or (call.http_status is not None and 500 <= call.http_status < 600):
+        return "transient"
+    return "not_transient"
+
+
 def _generate(
     prompt: str,
     *,
@@ -324,11 +368,15 @@ def _generate(
     still be tested deliberately.
     """
     if not api_key:
-        return GeminiResult(outputs={}, error="GEMINI_API_KEY is not set.")
+        # Nobody's next attempt fixes a missing key — a human must set one.
+        return GeminiResult(outputs={}, error="GEMINI_API_KEY is not set.", failure_kind="not_transient")
 
     candidates: List[str] = [model] if model else list(model_candidates)
 
     last_error = "No Gemini model candidates configured."
+    # Same reasoning as above: an empty candidates list is a configuration
+    # problem, not a transient one, if this line is ever actually reached.
+    last_failure_kind: FailureKind = "not_transient"
     for i, candidate in enumerate(candidates):
         call = _call_gemini(
             prompt, api_key=api_key, model=candidate,
@@ -338,6 +386,11 @@ def _generate(
             return GeminiResult(outputs=call.outputs, model=candidate)
 
         last_error = call.error
+        # The classification describes the failure that actually ends this
+        # call's attempt — set on every iteration so whichever branch below
+        # returns (the unrecoverable one immediately, or the loop falling
+        # through after the last candidate) carries the right one.
+        last_failure_kind = _classify_failure(call)
         is_last_candidate = i == len(candidates) - 1
 
         # The only two cases where another attempt cannot help.
@@ -353,13 +406,13 @@ def _generate(
         # problem") rather than a mystery.
         if unrecoverable:
             print(f"    [gemini] {candidate}: {reason} — stopping, another model would not help")
-            return GeminiResult(outputs=call.outputs or {}, error=call.error)
+            return GeminiResult(outputs=call.outputs or {}, error=call.error, failure_kind=last_failure_kind)
         elif is_last_candidate:
             print(f"    [gemini] {candidate}: {reason} — no more candidates to try")
         else:
             print(f"    [gemini] {candidate}: {reason} — trying next candidate")
 
-    return GeminiResult(outputs={}, error=last_error)
+    return GeminiResult(outputs={}, error=last_error, failure_kind=last_failure_kind)
 
 
 def generate_hebrew_outputs(
