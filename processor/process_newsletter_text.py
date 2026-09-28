@@ -119,6 +119,8 @@ def _fetch_eligible(cur, limit: int | None) -> list[dict]:
             source_url,
             published_at,
             title_en,
+            title_he,
+            reviewed_title_he,
             raw_text,
             reviewed_at
         FROM content_items
@@ -136,9 +138,29 @@ def _fetch_eligible(cur, limit: int | None) -> list[dict]:
 
 
 def _row_to_gemini_input(row: dict) -> dict:
-    """Build the plain dict the Gemini prompt builder reads from a DB row."""
+    """Build the plain dict the Gemini prompt builder reads from a DB row.
+
+    `title_he` here is resolved with the exact same reviewed-wins-if-present
+    precedence dashboard/src/components/PublishItem.jsx uses
+    (`reviewed_title_he ?? title_he`), and that every caller of
+    buildNewsletterHtml uses when building the mapped article it hands that
+    function. Michal approves BEFORE Pass 2 ever runs, so if she corrected
+    the title, this must carry HER wording into the body-writing prompt, not
+    Pass 1's original guess — a different precedence here would reintroduce
+    the exact title/body mismatch this field exists to fix, just from a
+    different direction.
+
+    This is deliberately `??` semantics, not Python's `or`: an explicit
+    empty string in reviewed_title_he (she cleared the title and saved)
+    still wins over title_he below, exactly as it does in the dashboard.
+    Falling back to title_he only happens when reviewed_title_he is
+    genuinely NULL.
+    """
+    reviewed_title_he = row.get("reviewed_title_he")
+    title_he = reviewed_title_he if reviewed_title_he is not None else row.get("title_he")
     return {
         "title": row["title_en"] or "",
+        "title_he": title_he or "",
         "source": row["source_name"] or "",
         "published_at": row["published_at"].isoformat() if row["published_at"] else "",
         "content": row["raw_text"] or "",

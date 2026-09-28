@@ -89,6 +89,23 @@ PUBLICATION_MODEL_CANDIDATES = [
 
 MAX_CONTENT_CHARS = 12000
 
+# Spelling fix only, not a glossary. רצסיבית (recessive, as in genetic
+# inheritance) has appeared misspelled as רססיבית in a real published text.
+# This does NOT expand into a list of correct drug/disease name spellings —
+# Hebrew transliterations of drug names (Spinraza, Evrysdi, Zolgensma, and
+# every drug approved after this comment was written) are a terminology
+# decision belonging to the association, not to this code. A hardcoded list
+# would go stale the moment a new drug is approved, and in a project with no
+# maintainer, a confidently wrong fixed list is worse than occasional
+# inconsistency: it makes an error look like the association's official term
+# instead of the obvious glitch a real misspelling is. Interpolated into both
+# prompts below rather than duplicated, so the one correction lives in one
+# place.
+_SPELLING_FIX_RECESSIVE = (
+    "The Hebrew term for recessive (genetic inheritance) is spelled רצסיבית. "
+    "A common misspelling, רססיבית, must not be used."
+)
+
 
 @dataclass(frozen=True)
 class GeminiResult:
@@ -169,8 +186,11 @@ What summary_he must do:
   in parentheses on first mention where that helps a Hebrew reader recognize it.
   Strip trademark symbols (™, ®) from drug and product names - they render badly
   in right-to-left text.
-- Use a plain hyphen (-) for any dash in the Hebrew text; never an em dash. An em
-  dash reads as machine-translated to a Hebrew reader, not natural writing.
+- Use only the plain ASCII hyphen-minus (U+002D) for any dash in the Hebrew text.
+  Do not use an em dash (U+2014), an en dash (U+2013), a minus sign (U+2212), or a
+  horizontal bar (U+2015) - all of these read as machine-translated to a Hebrew
+  reader, not natural writing.
+- {_SPELLING_FIX_RECESSIVE}
 - Proofread the Hebrew before returning it: no missing spaces between words, no
   doubled punctuation, no stray characters.
 
@@ -189,6 +209,38 @@ def build_newsletter_prompt(article: Dict[str, Any]) -> str:
     published_at = clean_article_text(str(article.get("published_at", "")))
     content = clean_article_text(str(article.get("content", "")))
     snippet = clean_article_text(str(article.get("snippet", "")))
+
+    # Pass 1 writes the Hebrew title; Pass 2 (this function) writes the body,
+    # as a separate Gemini call made days apart, and previously never saw the
+    # title it was writing a body for — so it re-invented the Hebrew spelling
+    # of every drug and term from scratch, independently of what the title
+    # above the body already said (observed live: "איזמבילד" in a title next
+    # to "איסמבילד" in that same article's body). `article["title_he"]` is
+    # resolved by the caller (process_newsletter_text.py's
+    # _row_to_gemini_input) using the same reviewed-title-wins precedence
+    # PublishItem.jsx and buildNewsletterHtml's caller use — Michal approves
+    # BEFORE this runs, so if she corrected the title, the body follows her
+    # wording, not the model's first guess.
+    #
+    # title_he can legitimately be missing (an older row, or one Michal
+    # cleared) — this must degrade to nothing rather than to a broken
+    # instruction ("the title is: None", or a dangling sentence with no
+    # title in it), so the whole block is conditional and empty when there
+    # is nothing usable.
+    title_he = str(article.get("title_he") or "").strip()
+    title_reference_block = ""
+    if title_he:
+        title_reference_block = f"""
+The article's Hebrew title, already approved, is: "{title_he}"
+Any term that appears in that title - a drug name, the disease name, an
+organisation, a person - must be written in the body EXACTLY as it is
+written there, character for character. This title is supplied as a
+terminology reference only: do not repeat it, do not open the body with it,
+and do not paraphrase it as a first line. The newsletter renders this title
+directly above the body, so a body that opens by restating it would show
+the same sentence twice to every reader.
+
+"""
 
     return f"""
 You are writing the Hebrew text that will be published in the newsletter of an
@@ -219,9 +271,11 @@ Register:
   company's announcement, not to this newsletter, so state plainly what the
   treatment does instead. Where the article gives numbers that matter to a reader
   (how many participants, what proportion improved), state them in plain language.
-- Use a plain hyphen (-) for any dash in the Hebrew text; never an em dash. An em
-  dash reads as machine-translated to a Hebrew reader, not natural writing, and
-  this text goes directly to families.
+- Use only the plain ASCII hyphen-minus (U+002D) for any dash in the Hebrew text.
+  Do not use an em dash (U+2014), an en dash (U+2013), a minus sign (U+2212), or a
+  horizontal bar (U+2015) - all of these read as machine-translated to a Hebrew
+  reader, not natural writing, and this text goes directly to families.
+- {_SPELLING_FIX_RECESSIVE}
 
 Accuracy:
 - Contain only facts present in the article content below. Never add, infer, or
@@ -246,7 +300,7 @@ short text; that is correct, never pad it out to reach a length. Do NOT:
 
 Do not include URLs, "read more", a call to action, or a sign-off - the newsletter
 template adds the source name and link separately.
-
+{title_reference_block}
 Article:
 Title: {title}
 Source: {source}
