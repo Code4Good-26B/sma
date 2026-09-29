@@ -12,8 +12,8 @@ name: Daily pipeline
 # place regardless of which of the three steps below actually broke.
 on:
   schedule:
-    # This requests 05:00 UTC (08:00 Israel time year-round; Israel's UTC+3
-    # summer clock would make this 08:00 too, since cron here is always UTC
+    # This requests 05:17 UTC (08:17 Israel time year-round; Israel's UTC+3
+    # summer clock would make this 08:17 too, since cron here is always UTC
     # regardless of any daylight-saving change — never the repository's
     # local time). What GitHub actually does with that request is a
     # different matter: measured from collector_runs, this schedule has

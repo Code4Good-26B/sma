@@ -157,11 +157,14 @@ is exactly what made the project transfer possible in the first place, and
 removing it mid-work would lock the volunteer out before the handover is
 done.
 
-**Backup codes and a recovery email in Michal's name, for every account.**
+**A recovery email address and a recovery phone number in Michal's name, for
+every account.** These exist independently of two-factor authentication —
+see "No two-factor authentication on any account, deliberately" below for
+why there are deliberately no backup codes to hand over alongside them.
 
 **Do the credential handover live with Michal, not in advance.** Change
 phone number, password and recovery address together with her; sign out all
-devices; regenerate backup codes (which invalidates the old ones).
+devices.
 
 **Write Michal a short, non-technical handover document.** In progress
 separately, in Hebrew — not part of this repository. It must cover: which
@@ -272,11 +275,20 @@ not a burden.
 
 **No two-factor authentication on any account, deliberately.** The
 consequence is stated bluntly on purpose: one email address and one password
-are the **entire** handover. The project inbox is a single point of
-failure — lose access to it, and GitHub, Supabase and Vercel are all
-unreachable with it. 2FA was left off specifically so that handing over
-"the inbox" really does hand over everything, rather than leaving a second
-factor stranded on a device or phone number Michal doesn't control.
+are the **entire** handover — for the accounts that inbox actually controls.
+The project inbox is a single point of failure for **Supabase and
+Vercel**: lose access to it, and both are unreachable with it. 2FA was left
+off specifically so that handing over "the inbox" really does hand over
+everything it can, rather than leaving a second factor stranded on a device
+or phone number Michal doesn't control. GitHub is not one of those accounts
+and is not covered by this at all — see the `Code4Good-26B` entry above for
+why the repository stays out of Michal's reach regardless. The cost of that,
+stated plainly: both `DATABASE_URL` and `GEMINI_API_KEY` exist only as
+GitHub Actions secrets in that repository (`daily.yml` lines 70, 86-87,
+107-108; `publication-text.yml` lines 81-82), so Michal cannot rotate
+either one herself. If the Gemini key is ever revoked, expires, or is
+blocked by Google, the pipeline simply stops producing text and she has no
+way to fix it — she would need whoever holds access to that repository.
 
 **Vercel's Hobby plan, which is restricted to non-commercial use, is fine
 here.** Vercel's own fair-use documentation states that asking for
@@ -420,7 +432,7 @@ worth knowing: her WordPress username and password are not needed anywhere in
 this project.**
 
 **`_MIN_STRIPPED_CHARS = 300` in `collector/article_fetcher.py` is an absolute
-floor, not a ratio.** A ratio was tried and rejected correct results: for
+floor, not a ratio.** A ratio was tried, and it rejected correct results: for
 curesma.org the content container *is* the whole page, so correct noise
 stripping legitimately removes ~90% of it. The rejected 660-character version
 was the actual article; the "safe" 6,713-character version began with the site's
@@ -442,7 +454,7 @@ roughly two months of silence, past the 60-day threshold.
 
 ## Known limitations
 
-- **The scheduled run is not punctual.** The cron requests 05:00 UTC; measured
+- **The scheduled run is not punctual.** The cron requests 05:17 UTC; measured
   starts have been 4h29m and 5h18m late. GitHub does not guarantee start times.
   Nothing here is time-sensitive, so this is documented rather than fought.
 - **An approved article with empty `raw_text` is skipped by Pass 2 forever**,
