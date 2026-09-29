@@ -123,49 +123,66 @@ on collector_runs (started_at desc);
 
 -- Row Level Security
 --
--- RLS is enabled on both tables, with deliberately permissive policies for the
--- `anon` and `authenticated` roles (the roles the Supabase anon key maps to).
--- The Collector and Processor connect via DATABASE_URL as the table owner,
--- which bypasses RLS entirely, so these policies do not affect them.
+-- RLS is enabled on both tables, with policies scoped to the `authenticated`
+-- role ONLY — `anon` is deliberately absent from every policy below. This
+-- used to grant `anon` the same access, because the Supabase anon key is
+-- baked into the dashboard's client-side JavaScript by Vite and is
+-- therefore public to anyone who opens the page — that used to mean anyone
+-- could read every article and modify Michal's review decisions with no
+-- login at all. The dashboard now requires a real signed-in session
+-- (Supabase Auth, email+password) before it renders anything that queries
+-- these tables (see dashboard/src/AuthGate.jsx), and the anon role's access
+-- is revoked here to match: a public, unauthenticated key must not still be
+-- able to read or write this data just because someone has it.
 --
--- THIS IS NOT REAL AUTHENTICATION. The anon key is embedded in the
--- dashboard's client-side JavaScript and is therefore public. Anyone who
--- finds the dashboard URL can read every article and modify Michal's review
--- decisions. Withholding INSERT/DELETE policies limits the blast radius (a
--- leaked/public key cannot be used to destroy or pollute data) but does not
--- fix this. Proper Supabase Auth for the dashboard is a separate, still-open
--- task that must be done before handover.
+-- The Collector and Processor connect via DATABASE_URL as the table owner,
+-- which bypasses RLS entirely, so these policies do not affect them at all —
+-- do not add a service-role key or any other credential for them here.
+--
+-- An anonymous query against either table is no longer refused with an
+-- error — PostgREST/RLS silently filters out every row instead, so it
+-- returns an empty, successful result rather than an error. That is exactly
+-- why the dashboard gates its own rendering on having a session (see
+-- AuthGate.jsx): an empty result from a logged-out query would otherwise
+-- render a perfectly healthy-looking empty dashboard, indistinguishable
+-- from a genuinely quiet news week.
 --
 -- These policies must live here, not be clicked together in the Supabase UI —
 -- schema.sql is the single source of truth and must stay reproducible.
+-- IMPORTANT: editing this file does NOT change the live database. These
+-- statements must be run against Supabase directly (the SQL editor, or
+-- `psql`) after being edited here — this file being correct and the
+-- database matching it are two separate facts.
 
 alter table content_items enable row level security;
 alter table collector_runs enable row level security;
 
 -- content_items: the Dashboard reads and updates rows, but never inserts or
 -- deletes, so only SELECT and UPDATE policies exist. Their absence for
--- INSERT/DELETE is deliberate, not an oversight.
+-- INSERT/DELETE is deliberate, not an oversight, and is unchanged by the
+-- anon -> authenticated-only change above.
 drop policy if exists content_items_select on content_items;
 create policy content_items_select
 on content_items
 for select
-to anon, authenticated
+to authenticated
 using (true);
 
 drop policy if exists content_items_update on content_items;
 create policy content_items_update
 on content_items
 for update
-to anon, authenticated
+to authenticated
 using (true)
 with check (true);
 
 -- collector_runs: the Dashboard only ever reads this table (to show Collector
 -- health). The Collector writes to it over the direct Postgres connection,
--- which bypasses RLS, so no write policy is needed here.
+-- which bypasses RLS, so no write policy is needed here. Read access is
+-- authenticated-only now, same reasoning as content_items above.
 drop policy if exists collector_runs_select on collector_runs;
 create policy collector_runs_select
 on collector_runs
 for select
-to anon, authenticated
+to authenticated
 using (true);

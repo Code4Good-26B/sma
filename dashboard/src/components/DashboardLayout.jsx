@@ -2,6 +2,7 @@
 import { NavLink } from 'react-router-dom';
 import smaLogo from '../assets/sma_logo.png';
 import HealthBanner from './HealthBanner';
+import { useAuth } from '../AuthContext';
 
 const navLinks = [
   { to: '/',          label: '📰 ידיעות חדשות',    end: true },
@@ -12,6 +13,8 @@ const navLinks = [
 ];
 
 export default function DashboardLayout({ children, health }) {
+  const { session, signOut } = useAuth();
+
   return (
     <div dir="rtl" style={layoutStyle}>
       {/* Sidebar */}
@@ -29,6 +32,13 @@ export default function DashboardLayout({ children, health }) {
             </NavLink>
           ))}
         </nav>
+
+        {/* DashboardLayout only ever renders inside AuthGate's authenticated
+            branch, so session is always present here — see AuthContext.jsx. */}
+        <div style={sidebarFooterStyle}>
+          <div style={userEmailStyle} title={session.user.email}>{session.user.email}</div>
+          <button style={signOutBtnStyle} onClick={signOut}>התנתקות</button>
+        </div>
       </aside>
 
       {/* Main Content Area */}
@@ -72,6 +82,34 @@ const logoStyle = {
 };
 
 const navStyle = { display: 'flex', flexDirection: 'column', gap: '4px' };
+
+const sidebarFooterStyle = {
+  marginTop: 'auto',
+  paddingTop: '16px',
+  borderTop: '1px solid var(--border)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+};
+
+const userEmailStyle = {
+  fontSize: '0.78rem',
+  color: 'var(--text)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const signOutBtnStyle = {
+  padding: '6px 10px',
+  borderRadius: '4px',
+  border: '1px solid var(--border)',
+  cursor: 'pointer',
+  fontSize: '0.85rem',
+  background: 'var(--bg)',
+  color: 'var(--text-h)',
+  fontFamily: 'inherit',
+};
 
 const navItemStyle = {
   display: 'block',

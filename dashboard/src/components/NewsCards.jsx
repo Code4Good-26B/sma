@@ -1,5 +1,6 @@
 // src/components/NewsCards.jsx
 import { useState } from 'react';
+import { useAuth } from '../AuthContext';
 
 const BADGE = {
   not_reviewed: { text: 'ממתין',      bg: '#94a3b8' },
@@ -38,6 +39,7 @@ const toDestinations = (target) => ({
 });
 
 export default function NewsCard({ article, onUpdate }) {
+  const { session } = useAuth();
   const {
     id,
     source_name,
@@ -53,6 +55,21 @@ export default function NewsCard({ article, onUpdate }) {
   } = article;
 
   const isProcessing = processing_status !== 'done';
+
+  // Every write below that used to stamp a hardcoded reviewer name into
+  // reviewed_by now stamps the actually-signed-in user's email instead. In
+  // practice this component only ever renders inside AuthGate's
+  // authenticated branch (see AuthContext.jsx), so a session is always
+  // present here — but "in practice" is not a guarantee worth writing bad
+  // data over: if session were ever missing at the moment of a click (a
+  // bug, a race during sign-out), updateAsReviewer below does nothing
+  // rather than writing a placeholder or a wrong value. It should never be
+  // observed to skip anything in normal use.
+  const currentUserEmail = session?.user?.email ?? null;
+  const updateAsReviewer = (changes) => {
+    if (!currentUserEmail) return;
+    onUpdate(id, { ...changes, reviewed_by: currentUserEmail });
+  };
 
   const displayTitle   = reviewed_title_he   ?? title_he   ?? '';
   const displaySummary = reviewed_summary_he ?? summary_he ?? '';
@@ -81,11 +98,10 @@ export default function NewsCard({ article, onUpdate }) {
   };
 
   const saveDraft = () => {
-    onUpdate(id, {
+    updateAsReviewer({
       reviewed_title_he:   editTitle,
       reviewed_summary_he: editSummary,
       review_status:       'needs_edit',
-      reviewed_by:         'michal',
       reviewed_at:         new Date().toISOString(),
     });
     setShowModal(false);
@@ -93,7 +109,7 @@ export default function NewsCard({ article, onUpdate }) {
 
   const handleRejectClick = () => {
     if (localStorage.getItem('skipRejectConfirm') === 'true') {
-      onUpdate(id, { review_status: 'irrelevant', reviewed_by: 'michal', reviewed_at: new Date().toISOString() });
+      updateAsReviewer({ review_status: 'irrelevant', reviewed_at: new Date().toISOString() });
     } else {
       setSkipRejectConfirm(false);
       setShowRejectModal(true);
@@ -102,7 +118,7 @@ export default function NewsCard({ article, onUpdate }) {
 
   const confirmReject = () => {
     if (skipRejectConfirm) localStorage.setItem('skipRejectConfirm', 'true');
-    onUpdate(id, { review_status: 'irrelevant', reviewed_by: 'michal', reviewed_at: new Date().toISOString() });
+    updateAsReviewer({ review_status: 'irrelevant', reviewed_at: new Date().toISOString() });
     setShowRejectModal(false);
   };
 
@@ -290,10 +306,9 @@ export default function NewsCard({ article, onUpdate }) {
                   borderColor: noDestinationSelected ? '#9ca3af' : '#22c55e',
                 }}
                 onClick={() => {
-                  onUpdate(id, {
+                  updateAsReviewer({
                     review_status:  'approved',
                     publish_target: toPublishTarget(approveDestinations),
-                    reviewed_by:    'michal',
                     reviewed_at:    new Date().toISOString(),
                   });
                   setShowApproveModal(false);
