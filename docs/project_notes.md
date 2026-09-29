@@ -1,6 +1,6 @@
 # Project notes — SMA Israel news automation
 
-**Last updated:** 2026-09-26
+**Last updated:** 2026-09-29
 
 This file holds the context that lives nowhere else in the repository: why things
 are the way they are, and what must happen before this project changes hands.
@@ -19,6 +19,17 @@ English, and most of the community this association serves cannot read it. The
 Hebrew text this system produces is therefore **not a teaser for an English
 article — it is the article**, for its readers.
 
+The dashboard is live in production at
+**https://sma-dashboard-blush.vercel.app**, gated by Supabase Auth (email +
+password, exactly one user account — public sign-ups and anonymous sign-ins
+are both disabled in the Supabase project). Michal's whole workflow exists in
+it: a review queue (edit, approve or reject each article, and choose its
+destination — newsletter, website, or both), a publication-texts screen,
+newsletter generation (copy to clipboard, download as HTML, and a separate
+deliberate "mark as sent"), and copy-to-WordPress (with its own separate
+"mark as published"). See `docs/db_contract.md` for the field-level contract
+behind all of this.
+
 The daily chain:
 
 ```
@@ -34,10 +45,12 @@ Every 6 hours (automatic, additional):
                        the run or send an email (see .github/README.md and
                        "Decisions that look wrong but are not" below).
 
-Michal, at her own pace:
+Michal, at her own pace, in the dashboard:
   ~weekly     reviews new items, marks interesting/not + target (newsletter/website/both)
-  ~monthly    reviews newsletter texts, edits, clicks "צור ניוזלטר", gets a file to send
-  as needed   clicks "copy" on a website item, pastes into WordPress by hand
+  ~monthly    reviews newsletter texts, edits, clicks "צור ניוזלטר", copies or
+              downloads it, then a separate "mark as sent" click
+  as needed   clicks "copy" on a website item, pastes into WordPress by hand,
+              then a separate "mark as published" click
 ```
 
 ---
@@ -66,112 +79,140 @@ Two consequences worth internalising:
 
 ## HANDOVER CHECKLIST
 
-### Blocking — the product does not survive handover without these
+Restructured so a reader can tell in ten seconds what is still owed, rather
+than scanning a flat numbered list to work out which items are already done.
 
-**1. A working Gemini API key on an association-owned Google account.**
-The key currently in the `GEMINI_API_KEY` GitHub secret belongs to the
-volunteer's **personal** Google account. The project Gmail
-(`smaisrael2@gmail.com`) is **blocked by Google at the account level** —
-`403 PERMISSION_DENIED`, "Your project has been denied access". This was
-verified in September 2026 on two separate Cloud projects, including a
-brand-new one, which rules out a per-project cause.
-**A key that exists is not a key that works.** Whatever key ends up here must be
-tested with a real API call before handover, not merely created.
+### Done
 
-**2. A GitHub account registered with the project's email address, owning this
-repository.**
-GitHub sends failure notifications to the **account**, not to the repository.
-There is no recipient list to add an address to. Notifications go to whoever
-triggered a run, and for scheduled runs to whoever last edited the cron
-expression. Until the repository is owned and the cron last touched by an
-account registered to the project's inbox, **every failure email will keep going
-to the volunteer, forever, after he has gone.**
-After transferring, repeat the failure-email test (see "How to test the alert"
-below) from the new account.
+**Supabase moved to an association-owned account.** The project was
+transferred into an organisation ("SMA Israel") owned by the project email
+account. The project reference, URL and API keys were unchanged by the
+transfer, so — contrary to what an earlier version of this checklist warned
+— no secret or environment variable needed updating. Verified by a green
+Daily pipeline run afterwards.
 
-**3. Find out what happens to the `Code4Good-26B` GitHub organisation.**
-This repository currently lives inside the course's organisation, not the
-association's. Nobody has confirmed what becomes of it when the cohort ends. If
-access is revoked or the organisation is archived, **the scheduled workflow
-simply stops running and the product dies silently** — and the failure email
-cannot warn anyone, because it depends on the same repository. Ask the course
-staff, and move the repository if the answer is not reassuring.
+**Vercel account opened in the association's name.** Created fresh on the
+project email account, Hobby plan, deployed from the CLI (`vercel --prod`,
+run from `dashboard/`) — never the volunteer's own account. Deliberately
+not connected to Git; see "Decisions that look wrong but are not" below for
+why.
 
-**4. Supabase moved to an association-owned account.**
-Update the `DATABASE_URL` GitHub secret **in the same sitting**. A moved
-database with a stale secret is a pipeline that fails every morning.
+**Supabase Auth and real row-level security.** The dashboard now requires a
+real signed-in session before it renders anything (email + password, exactly
+one user; see `dashboard/src/AuthGate.jsx`). The RLS policies in
+`db/schema.sql` were narrowed from `anon, authenticated` to `authenticated`
+only, and `reviewed_by` now records the signed-in user's real email instead
+of the literal string `'michal'`. Vercel's Deployment Protection — which had
+been the only thing standing in front of the live site until this landed —
+was then switched off; see "Decisions that look wrong but are not" for why
+that is correct now rather than a regression.
 
-**5. Vercel account opened in the association's name from the start** — never
-the volunteer's, for the dashboard deployment.
+### Decided against
 
-### Required before handing the keys over
+**Moving the repository to a GitHub account registered to the project's
+email, or otherwise moving it out of the `Code4Good-26B` organisation.**
+This was on an earlier version of this checklist as blocking. It was
+decided against deliberately, under time pressure — see "Decisions that
+look wrong but are not" below (the very first entry) for the full reasoning
+and its real, plainly-stated cost. This is not the same thing as the
+decision having no cost; read that entry before assuming it is safe to leave
+alone forever.
 
-**6. Supabase Auth and real row-level security.**
-The RLS policies currently in `db/schema.sql` are permissive by design and are
-**not authentication**. They exist so that a leaked anon key cannot destroy data
-(there are deliberately no INSERT or DELETE policies), not to control who may
-read or edit. Real auth is required before Michal uses this unsupervised.
-When it lands, `reviewed_by` in `dashboard/src/components/NewsCards.jsx` must be
-changed to read the signed-in user instead of the hardcoded string `'michal'` —
-otherwise every edit made by anyone, forever, is attributed to her regardless of
-who actually made it.
+### Still open — blocking
 
-**7. Remove `SUPABASE_SERVICE_ROLE_KEY` from the local `.env`.** It bypasses
+**A working Gemini API key on an association-owned Google account.** This
+is now the **last** item blocking a real handover. The key currently in the
+`GEMINI_API_KEY` GitHub secret still belongs to the volunteer's **personal**
+Google account. The project Gmail (`smaisrael2@gmail.com`) is **blocked by
+Google at the account level** — `403 PERMISSION_DENIED`, "Your project has
+been denied access". This was verified in September 2026 on two separate
+Cloud projects under that account, including a brand-new one, which rules
+out a per-project cause. What's been learned since: this is a widely
+reported 2026 problem, and Google staff on their own forums attribute it to
+a flag on the **account**, not the project — so creating yet another project
+under the same account cannot help. A **brand-new** Google account carries a
+real risk of tripping the same flag; an **old, established** account (the
+association's, with real history, not one created for this purpose) is
+materially safer. And regardless of which account this lands on, the
+existing rule stands: **a key that exists is not a key that works** —
+whatever key ends up here must be tested with a real API call before
+handover, not merely created.
+
+### Still open — smaller
+
+**Remove `SUPABASE_SERVICE_ROLE_KEY` from the local `.env`.** It bypasses
 every row-level security policy in the database, and nothing in this project
-reads it — the pipeline talks to Postgres directly through `DATABASE_URL`, and
-the dashboard uses only the anon key (`dashboard/.env`,
+reads it — the pipeline talks to Postgres directly through `DATABASE_URL`,
+and the dashboard uses only the anon key (`dashboard/.env`,
 `VITE_SUPABASE_ANON_KEY`). It was already removed from the root
 `.env.example` for the same reason. A credential nobody uses is a credential
 that gets copied somewhere careless at handover; if it's ever needed again it
 can be regenerated from Supabase → Settings → API in one click.
 
-**8. Backup codes and a recovery email in Michal's name, for every account.**
+**Remove the volunteer's personal Supabase account from the "SMA Israel"
+organisation, once the work is finished.** Until that happens, the
+association's database is still reachable by a private individual outside
+the association. This genuinely cannot be done any earlier: that membership
+is exactly what made the project transfer possible in the first place, and
+removing it mid-work would lock the volunteer out before the handover is
+done.
 
-**9. Do the credential handover live with Michal, not in advance.**
-Change phone number, password and recovery address together with her; sign out
-all devices; regenerate backup codes (which invalidates the old ones).
+**Backup codes and a recovery email in Michal's name, for every account.**
 
-**10. Write Michal a short, non-technical handover document.** It must cover:
-which accounts exist and their credentials; that the running cost should be
-zero; what the dashboard's warning banner means; **the GitHub 60-day rule**
-(see `heartbeat.yml`); the Gemini free-tier limit (~20 requests/day per model —
-normal use is 1-2/day, and a 429 is temporary and self-heals); and the one-line
-fix if a model 404s (see `.github/README.md`).
+**Do the credential handover live with Michal, not in advance.** Change
+phone number, password and recovery address together with her; sign out all
+devices; regenerate backup codes (which invalidates the old ones).
 
-**11. The "~20 requests/day per model" figure above is this project's own old
-observation, not a number Google currently publishes — look up the real limit
-in AI Studio before trusting it.** Google's rate-limits documentation no
-longer lists a fixed per-day number at all; it now says limits are per
-**project** and shown inside AI Studio itself once you're signed into that
-project. Whoever ends up owning the final `GEMINI_API_KEY` should check that
-project's actual dashboard in AI Studio for its real rate limits, rather than
-carrying this document's old figure forward as if it still applies — it may
-not, for whichever project the final key belongs to.
+**Write Michal a short, non-technical handover document.** In progress
+separately, in Hebrew — not part of this repository. It must cover: which
+accounts exist and their credentials; that the running cost should be zero;
+what the dashboard's warning banner means; **the GitHub 60-day rule** (see
+`heartbeat.yml`); the Gemini quota point below; and the one-line fix if a
+model 404s (see `.github/README.md`).
+
+**Look up the Gemini free-tier quota in AI Studio, for whichever project
+ends up owning the final key.** Google no longer publishes these numbers in
+its documentation — the rate-limits page now says limits are per **project**
+and are shown inside AI Studio itself once signed into that project. The
+"~20 requests/day per model" figure this document used to carry is this
+project's own **old observation**, not documentation, and it may not hold
+for whichever project the final key belongs to. The quota is shared between
+Pass 1 and Pass 2 — both draw on the same project's allowance.
+
+**Paste one article into the association's real WordPress as a DRAFT,
+preview it, and delete the draft.** This is the only check that would
+confirm the deliberate decision to emit no inline styles in the
+website-copy HTML (`dashboard/src/lib/buildWebsiteHtml.js`) was right — that
+the association's own theme styles plain `<p>` tags acceptably. It was
+consciously deferred to Michal, who has the real site to test against; this
+project has none.
 
 ### Recommended, not blocking
 
-**12. Give SMA News Today a second path.** Its `rss_url` is `None`, so HTML
-scraping is its **only** route — and it is the more prolific of the two active
-sources. A comment in `collector/sources.py` records that its RSS feed returns
-200. On 2026-09-20 the site 403'd the HTML listing for several hours and the
-source produced nothing; the 14-day lookback window absorbed it completely and
-no article was lost, but a source with a single path is a single point of
-failure in a system meant to run unattended for years.
+**Give SMA News Today a second path.** Its `rss_url` is `None`, so HTML
+scraping is its **only** route — and it is the more prolific of the two
+active sources. A comment in `collector/sources.py` records that its RSS
+feed returns 200. On 2026-09-20 the site 403'd the HTML listing for several
+hours and the source produced nothing; the 14-day lookback window absorbed
+it completely and no article was lost, but a source with a single path is a
+single point of failure in a system meant to run unattended for years.
 
-**13. The paid Gemini tier is a real option.** 503 "high demand" errors on the
+**The paid Gemini tier is a real option.** 503 "high demand" errors on the
 free tier are widespread and documented — Google's own rate-limit page says
 "Specified rate limits are not guaranteed and actual capacity may vary", and
-their forum carries long threads about it, **including from paying customers**.
-At this project's volume (1-2 articles/day) the paid tier would cost on the
-order of **cents per month**. It was not enabled because "zero cost" was
-promised to the association and because paying does not eliminate 503s — but if
-availability ever proves insufficient, this is the lever, and it is cheap.
+their forum carries long threads about it, **including from paying
+customers**. At this project's volume (1-2 articles/day) the paid tier would
+cost on the order of **cents per month**. It was not enabled because "zero
+cost" was promised to the association and because paying does not eliminate
+503s — but if availability ever proves insufficient, this is the lever, and
+it is cheap.
 
-**14. Two GitHub deprecations to be aware of.** `actions/checkout@v4` and
-`actions/setup-python@v5` target Node.js 20, which GitHub has deprecated and is
-currently force-running on Node 24. Separately, `ubuntu-latest` migrates to
-Ubuntu 26 on 2026-10-19. Both will most likely pass without incident — but if
-the pipeline one day fails for no visible reason, **check these first.**
+**Two GitHub deprecations to be aware of.** `actions/checkout@v4` and
+`actions/setup-python@v5` target Node.js 20, which GitHub has deprecated and
+is currently force-running on Node 24. Separately, `ubuntu-latest` migrates
+to Ubuntu 26 on 2026-10-19. Both will most likely pass without incident —
+but if the pipeline one day fails for no visible reason, **check these
+first.**
 
 ---
 
@@ -195,6 +236,85 @@ silence. An untested alert is not an alert.
 ---
 
 ## Decisions that look wrong but are not
+
+**The repository stays in the `Code4Good-26B` GitHub organisation — a
+considered decision made under time pressure, not neglect.** The cost is
+real and is written down here plainly: GitHub's documented behaviour is
+that when the last user to commit to a workflow's cron schedule is removed
+from an organisation, that scheduled workflow is disabled. The working
+assumption is that past cohort members are not actively removed from
+`Code4Good-26B` — but that is an assumption, not a confirmation. If it turns
+out wrong, the pipeline stops silently, and nobody can re-enable it except
+someone with access to that repository — which Michal does not have. What
+DOES catch it regardless: the dashboard's health banner, which reports "the
+system has not collected news since X" after two days without a successful
+run — on the screen Michal opens weekly anyway. The chain, spelled out: a
+membership change could silently disable the scheduled workflow → nobody
+would notice from the GitHub side, since there is nobody watching it → but
+the pipeline going quiet shows up in `collector_runs` within a day → the
+dashboard's health banner turns amber within two → Michal sees it on her
+next weekly visit regardless. It is a slower catch than a real alert, but it
+is not silence.
+
+**Failure emails go to the GitHub account that last edited the cron — the
+volunteer's personal account — and after handover there is no recipient
+list to change that to.** Michal will not receive them. The dashboard's
+health banner is therefore her **real** safety net after handover, not the
+inbox — see the entry above for the same reasoning applied to the
+organisation question.
+
+**Vercel is not connected to Git, on purpose.** Deploying is `vercel --prod`
+from the `dashboard/` directory, by hand. A Git connection would need the
+course organisation's approval (the repository still lives there) and would
+couple the association's own Vercel account to that organisation for no
+real benefit — the dashboard changes rarely enough that a manual deploy is
+not a burden.
+
+**No two-factor authentication on any account, deliberately.** The
+consequence is stated bluntly on purpose: one email address and one password
+are the **entire** handover. The project inbox is a single point of
+failure — lose access to it, and GitHub, Supabase and Vercel are all
+unreachable with it. 2FA was left off specifically so that handing over
+"the inbox" really does hand over everything, rather than leaving a second
+factor stranded on a device or phone number Michal doesn't control.
+
+**Vercel's Hobby plan, which is restricted to non-commercial use, is fine
+here.** Vercel's own fair-use documentation states that asking for
+donations is not commercial usage. The dashboard takes no payments and shows
+no ads — it is an internal tool for one person to review and publish
+articles — so this restriction does not bind.
+
+**There is no test suite in this repository.** Every verification made
+during development was written, executed against fabricated input or the
+live database, and then deleted — never committed. The reasoning behind
+each non-obvious piece of logic lives in code comments instead. Noted here
+honestly as a real limitation for whoever inherits this code, not hidden by
+its absence: there is nothing here to run, and no regression safety net
+beyond `npm run build` / `npm run lint` and careful reading.
+
+**Newsletter generation does not require every eligible article to have a
+publication text before it will run.** It generates from whichever articles
+already have one, lists the excluded ones **by title** on screen (not just a
+count — Michal needs to know which article is missing to judge whether it's
+worth waiting for), and "mark as sent" only ever touches the articles that
+actually went into that generated batch
+(`dashboard/src/lib/selectNewsletterBatch.js`). The alternative — blocking
+the whole newsletter on the slowest article — would mean one stuck Gemini
+call holds every other approved article hostage indefinitely; this way the
+newsletter ships with what's ready, and nothing is ever marked sent that
+wasn't actually included in it.
+
+**A collector source counts as OK only when it reported `status: 'ok'` AND
+a non-zero `listed`, not `status: 'ok'` alone.** `listed` is what a source's
+listing page displayed, before the duplicate check and the early-stop — a
+genuinely quiet week still lists a source's existing articles, so `listed`
+stays positive even when nothing is new. `status: 'ok'` alone only means
+`collect_source` (`collector/main.py`) didn't raise an exception; a blocked
+or restructured source can return a page that parses to zero articles with
+no HTTP error at all, which `collect_source` still happily records as
+`status: 'ok'`. Without the `listed` check, that reads to Michal as an
+ordinary quiet week instead of the blind spot it actually is. See
+`dashboard/src/lib/computeCollectorHealth.js`.
 
 **The publish screen edits `newsletter_text_he` directly — there is no
 `reviewed_newsletter_text_he` column**, unlike the `reviewed_title_he` /
@@ -313,7 +433,10 @@ articles contained **zero** mentions of SMA anywhere in their full text.
 after 60 days of repository inactivity. With no maintainer nobody will be
 pushing commits, so without this file the daily pipeline would silently stop
 around month three. It is not a health check and it does not verify anything —
-it exists solely to keep the schedule switched on.
+it exists solely to keep the schedule switched on. It now runs twice a month
+(the 1st and the 15th), not once, specifically because GitHub can skip a
+scheduled run outright — at once-a-month, two skipped runs in a row would be
+roughly two months of silence, past the 60-day threshold.
 
 ---
 
@@ -323,16 +446,14 @@ it exists solely to keep the schedule switched on.
   starts have been 4h29m and 5h18m late. GitHub does not guarantee start times.
   Nothing here is time-sensitive, so this is documented rather than fought.
 - **An approved article with empty `raw_text` is skipped by Pass 2 forever**,
-  silently, and is re-selected every run. It is rare, but the dashboard should
-  surface "approved, no publication text" so it cannot hide. This is also
-  exactly why it is excluded from Pass 2's 14-day alerting floor (see
-  "Decisions that look wrong but are not" above) — it would otherwise trigger
-  a failure email every day, forever, about something nobody can fix.
-- **The dashboard's health check must read per-source data**, not just
-  `collector_runs.status`. After the partial/systemic split, a run in which one
-  source is dead still reports green. The per-source detail is in the `sources`
-  jsonb column.
-- **`App.jsx` fetches every article with no pagination or date window.**
-  Switching `select('*')` to an explicit column list cut the payload by ~70%, but
-  the query itself is still unbounded — it will need a `limit` or a date window
-  once the table is large enough for that to matter.
+  and is re-selected at no real cost every run. The dashboard now surfaces
+  this rather than hiding it: the publish screen shows a neutral note for the
+  first two days after approval ("the text will be generated automatically"),
+  then an amber warning naming the approval date once it has been longer than
+  that (`dashboard/src/components/PublishItem.jsx`). This makes the stuck
+  state visible to Michal; it does not fix it — an empty `raw_text` will never
+  produce a publication text on any future run, and nothing here can act on
+  that without a human noticing.
+- **`App.jsx` fetches every article with no pagination or date window.** The
+  query is unbounded — it will need a `limit` or a date window once the table
+  is large enough for that to matter.

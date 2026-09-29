@@ -129,7 +129,8 @@ nobody will be pushing commits — which means, without a countermeasure, BOTH
 scheduled pipeline workflows' schedules (`daily.yml` and `publication-text.yml`)
 would silently stop working around month three, and nobody would notice.
 
-`heartbeat.yml` exists purely to prevent that. Once a month it:
+`heartbeat.yml` exists purely to prevent that. Twice a month (the 1st and the
+15th) it:
 
 1. Writes the current UTC timestamp to `.github/last-heartbeat.txt` and commits it —
    a small, harmless change whose only job is to keep the repository "active" in
@@ -138,6 +139,13 @@ would silently stop working around month three, and nobody would notice.
 2. As a second line of defense, explicitly re-enables both `daily.yml` and
    `publication-text.yml` through the GitHub API, in case either was disabled for
    some other reason.
+
+**Twice a month, not once — this was changed on purpose.** GitHub documents that
+it can skip a scheduled run outright. At a once-a-month cadence, two skipped runs
+in a row would mean roughly two months of silence, which is past the 60-day
+inactivity threshold — the exact failure this file exists to prevent, caused by
+the thing meant to prevent it. Twice a month halves that risk for the cost of one
+extra trivial commit a month.
 
 **It is not a health check.** It does not verify the pipeline is working — only that
 the schedule mechanism stays turned on. Do not delete this file thinking it's

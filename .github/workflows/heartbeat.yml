@@ -12,19 +12,24 @@ name: Heartbeat
 # automating the pipeline was that nobody has to watch it.
 #
 # This workflow is NOT a health check and NOT a test of the daily pipeline.
-# Its only purpose is to make one small, harmless commit each month so the
-# repository always shows recent activity, keeping both pipeline workflows
-# eligible to keep running on schedule. As a second line of defense, it also
-# explicitly re-enables each of them via the GitHub API in case one was
-# already disabled for some other reason.
+# Its only purpose is to make one small, harmless commit twice a month so
+# the repository always shows recent activity, keeping both pipeline
+# workflows eligible to keep running on schedule. As a second line of
+# defense, it also explicitly re-enables each of them via the GitHub API in
+# case one was already disabled for some other reason.
 #
 # Do not remove this file unless you replace it with something else that
 # keeps the repository "active" at least once every ~60 days.
 on:
   schedule:
-    # 1st of every month, 04:00 UTC. Well inside the 60-day window with
-    # margin to spare even if a run is delayed or occasionally skipped.
-    - cron: "0 4 1 * *"
+    # Twice a month — the 1st and the 15th, 04:00 UTC — not once. GitHub
+    # documents that it can skip a scheduled run outright, and at a
+    # once-a-month cadence two skipped runs in a row (roughly two months of
+    # silence) would land past the 60-day inactivity threshold, letting the
+    # very workflows this file exists to protect get disabled by the exact
+    # thing it exists to prevent. Twice a month halves that risk for the
+    # cost of one extra trivial commit a month.
+    - cron: "0 4 1,15 * *"
   workflow_dispatch: {}
 
 permissions:
@@ -50,13 +55,13 @@ jobs:
           git add .github/last-heartbeat.txt
           # `if <cmd>` is exempt from bash's errexit, unlike `<cmd> &&
           # <cmd>` — needed here because "there IS a diff" (git diff
-          # --quiet exiting 1) is the expected case every month, not an
+          # --quiet exiting 1) is the expected case every run, not an
           # error condition.
           if git diff --cached --quiet; then
             echo "No change, skipping commit."
             exit 0
           fi
-          git commit -m "chore: monthly heartbeat (keep scheduled workflows active)"
+          git commit -m "chore: heartbeat (keep scheduled workflows active)"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,7 +70,7 @@ jobs:
         # Whether a bot-authored commit resets GitHub's 60-day inactivity
         # clock is not clearly documented, so this step does not rely on
         # that alone: it explicitly re-enables both scheduled pipeline
-        # workflows through the API every month. A no-op if they're already
+        # workflows through the API every run. A no-op if they're already
         # enabled. Both daily.yml and publication-text.yml (added
         # 2026-09-26) run Pass 2 on a schedule and must not be allowed to go
         # silently disabled the same way daily.yml could. continue-on-error

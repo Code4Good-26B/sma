@@ -102,15 +102,24 @@ def _fetch_eligible(cur, limit: int | None) -> list[dict]:
     newsletter and the website copy-paste block, so an article approved for
     the website alone needs it just as much as one approved for the
     newsletter. What makes generation pointless is having no destination at
-    all. The dashboard's approve modal no longer allows confirming with
-    publish_target = 'none' (it disables the confirm button until a
-    destination is ticked), and its "החזרה לתור" action for an already-
-    approved article sets review_status back to 'not_reviewed' in the same
-    update that clears publish_target to 'none' — so review_status =
-    'approved' AND publish_target = 'none' should no longer occur through
-    normal use of the dashboard at all. A row in exactly that combination
-    means it predates the approve-modal guard (this filter still excludes
-    those old rows, which is why it's kept), not that the guard was bypassed.
+    all.
+
+    `approved` + `publish_target = 'none'` is a real, everyday state here,
+    not a stale edge case left over from before the dashboard existed. The
+    approve modal's confirm button always works, whether or not a
+    destination is ticked — when none is, it relabels itself "אישור ללא
+    יעד" instead of being disabled, specifically so Michal can mean
+    "approved, I haven't decided where yet" without that being a decision
+    she is forced to make on the spot. (An earlier version of the modal
+    disabled the button until a destination was ticked; that was removed
+    because it was a one-way door out of "approved, undecided" once a
+    destination had been picked, with no way back. The dashboard now makes
+    the undecided state visible instead of preventing it — a red "ללא יעד
+    פרסום" badge on the card — which is the safer choice for a state that
+    is going to exist either way.) This filter is still exactly right for
+    that state: generating a publication text for an article with nowhere
+    to go yet would still be a wasted Gemini call, regardless of why it has
+    no destination.
     """
     query = """
         SELECT
