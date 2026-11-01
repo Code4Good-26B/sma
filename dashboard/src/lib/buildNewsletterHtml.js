@@ -35,15 +35,18 @@ const END = 'left';
 // Every STRINGS key except the two structural ones is user-editable via
 // newsletter_template.overrides (see docs/db_contract.md) — derived from
 // STRINGS itself so a future string added there is editable by default,
-// with no second list to keep in sync.
-const EDITABLE_STRING_KEYS = Object.keys(STRINGS).filter(
+// with no second list to keep in sync. Exported so the settings screen's
+// field list (newsletterTemplateFields.js) is built from this exact same
+// source of truth rather than a second, hand-maintained list that could
+// silently drift from what the merge actually treats as editable.
+export const EDITABLE_STRING_KEYS = Object.keys(STRINGS).filter(
   (key) => key !== 'dir' && key !== 'lang_attr'
 );
 
 // DONATION_URL is not part of STRINGS (it's a destination, not display
 // text) but is editable the same way, under this key in the same overrides
 // object, rather than inventing a second overrides shape for one field.
-const DONATION_URL_KEY = 'donation_url';
+export const DONATION_URL_KEY = 'donation_url';
 
 // Merges a saved overrides object over the hard-coded defaults. A key
 // PRESENT in overrides wins even when its value is an empty string (Michal
@@ -97,6 +100,27 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// Every merged string used to be a constant, so nothing here escaped it —
+// only article-derived text did (see escapeHtml's own comment above). They
+// are user input now (newsletter_template.overrides), still interpolated
+// raw: an opener of 'a & b <br> c' emitted a literal <br> element, and a
+// donation_url of 'https://x.org/" style="display:none' broke out of the
+// href attribute. Escaping every value here, once, up front, covers both
+// text-content and attribute spots (href, alt) in one pass — escapeHtml
+// already encodes the quote that matters for breaking out of an attribute,
+// same as it does for the chars that matter in a text node, so one escaped
+// copy is correct everywhere this file interpolates a merged string. Not
+// used by buildNewsletterPlainText below — plain text isn't markup, so
+// there is nothing to escape there, and escaping it would show visible
+// "&amp;" to the reader instead of "&".
+function escapeStrings(strings) {
+  const escaped = {};
+  for (const key of Object.keys(strings)) {
+    escaped[key] = escapeHtml(strings[key]);
+  }
+  return escaped;
+}
+
 // The publication texts on the /publish screen contain multiple paragraphs
 // separated by blank lines, and the review <textarea> preserves them — but
 // newsletter.html.j2 interpolated the whole text into a single <div>, and
@@ -147,8 +171,8 @@ ${bodyHtml}
  * @returns {string} the complete newsletter HTML document
  */
 export function buildNewsletterHtml(articles, issueDate, year, overrides) {
-  const s = mergeStrings(overrides);
-  const donationUrl = resolveDonationUrl(overrides);
+  const s = escapeStrings(mergeStrings(overrides));
+  const donationUrl = escapeHtml(resolveDonationUrl(overrides));
   const copyright = buildCopyrightLine(year, s.copyright_tail);
   const list = Array.isArray(articles) ? articles : [];
   const cardsHtml = list.map((article) => renderArticleCard(article, s)).join('');

@@ -1,10 +1,95 @@
 // src/pages/SettingsPage.jsx
 import { useState } from 'react';
+import { buildNewsletterHtml } from '../lib/buildNewsletterHtml';
+import { formatIssueDateHe } from '../lib/newsletterTheme';
+import { buildFieldGroups, DEFAULT_TEMPLATE_VALUES } from '../lib/newsletterTemplateFields';
 
-export default function SettingsPage() {
+const FIELD_GROUPS = buildFieldGroups();
+const ALL_FIELD_KEYS = FIELD_GROUPS.flatMap((group) => group.fields.map((f) => f.key));
+
+const URL_PATTERN = /^https?:\/\//i;
+
+// Two fictional, obviously-sample articles for the live preview — never
+// real data. Without this, editing `kicker` or `read_more` is blind: there
+// is no way to see what the word even labels. The preview is what makes
+// this screen usable, not a nicety.
+const SAMPLE_ARTICLES = [
+  {
+    title: '[כתבה לדוגמה] מחקר חדש בתחום ה-SMA',
+    url: 'https://example.org/sample-1',
+    text: (
+      'זהו טקסט דוגמה בלבד, שנועד להראות כיצד כתבה תיראה בניוזלטר האמיתי.\n\n' +
+      'פסקה שנייה לדוגמה, כדי להמחיש גם איך נראית כתבה עם כמה פסקאות.'
+    ),
+  },
+  {
+    title: '[כתבה לדוגמה] עדכון נוסף מהקהילה',
+    url: 'https://example.org/sample-2',
+    text: 'טקסט דוגמה קצר לכתבה שנייה.',
+  },
+];
+
+// A fixed date, not new Date(): the preview must look the same regardless
+// of when Michal happens to open this screen.
+const SAMPLE_DATE = new Date(2026, 0, 1);
+const SAMPLE_ISSUE_DATE = formatIssueDateHe(SAMPLE_DATE);
+const SAMPLE_YEAR = SAMPLE_DATE.getFullYear();
+
+function buildInitialValues(overrides) {
+  const safe = overrides && typeof overrides === 'object' ? overrides : {};
+  const values = {};
+  for (const key of ALL_FIELD_KEYS) {
+    values[key] = Object.prototype.hasOwnProperty.call(safe, key)
+      ? safe[key]
+      : DEFAULT_TEMPLATE_VALUES[key];
+  }
+  return values;
+}
+
+// Diffs the form against the hard-coded defaults AND the currently-saved
+// overrides, so the row written to the database holds only fields that
+// genuinely differ from the default — it should stay empty until Michal
+// changes something — and a field reset back to its default is sent as
+// `undefined` (delete), never as the default value itself (see
+// onUpdateNewsletterTemplate in App.jsx for why that distinction matters).
+function computeChanges(formValues, savedOverrides) {
+  const safeSaved = savedOverrides && typeof savedOverrides === 'object' ? savedOverrides : {};
+  const changes = {};
+  for (const key of ALL_FIELD_KEYS) {
+    const isDefault = formValues[key] === DEFAULT_TEMPLATE_VALUES[key];
+    const currentlyOverridden = Object.prototype.hasOwnProperty.call(safeSaved, key);
+    if (isDefault) {
+      if (currentlyOverridden) changes[key] = undefined;
+    } else if (!currentlyOverridden || safeSaved[key] !== formValues[key]) {
+      changes[key] = formValues[key];
+    }
+  }
+  return changes;
+}
+
+export default function SettingsPage({ newsletterOverrides, onUpdateNewsletterTemplate }) {
   const [skipRejectConfirm, setSkipRejectConfirm] = useState(
     localStorage.getItem('skipRejectConfirm') === 'true'
   );
+  const [formValues, setFormValues] = useState(() => buildInitialValues(newsletterOverrides));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Re-derives the form whenever newsletterOverrides changes identity:
+  // once when App.jsx's own fetch resolves after this screen has already
+  // mounted (newsletterOverrides starts at {} before that), and again
+  // after every successful save from this same screen (App.jsx updates it
+  // optimistically, which flows back down here as a new prop). Both are
+  // exactly when the form SHOULD reflect the latest saved state, and
+  // nothing else writes this row. Adjusting state during render rather
+  // than in a useEffect — React's own documented pattern for resetting
+  // derived state when a prop changes — avoids the extra render an effect
+  // would cause.
+  const [prevOverrides, setPrevOverrides] = useState(newsletterOverrides);
+  if (newsletterOverrides !== prevOverrides) {
+    setPrevOverrides(newsletterOverrides);
+    setFormValues(buildInitialValues(newsletterOverrides));
+  }
 
   const toggle = (checked) => {
     setSkipRejectConfirm(checked);
@@ -14,6 +99,28 @@ export default function SettingsPage() {
       localStorage.removeItem('skipRejectConfirm');
     }
   };
+
+  const setField = (key, value) => {
+    setFormValues((prev) => ({ ...prev, [key]: value }));
+    setSaved(false);
+  };
+
+  const resetField = (key) => {
+    setFormValues((prev) => ({ ...prev, [key]: DEFAULT_TEMPLATE_VALUES[key] }));
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const changes = computeChanges(formValues, newsletterOverrides);
+    const ok = await onUpdateNewsletterTemplate(changes);
+    setSaving(false);
+    // The failure toast already fires from App.jsx on error — nothing
+    // else to show here on failure, only on success.
+    if (ok) setSaved(true);
+  };
+
+  const previewHtml = buildNewsletterHtml(SAMPLE_ARTICLES, SAMPLE_ISSUE_DATE, SAMPLE_YEAR, formValues);
 
   return (
     <section>
@@ -33,7 +140,96 @@ export default function SettingsPage() {
           </div>
         </label>
       </div>
+
+      {/* Deliberately on this screen, not inside the newsletter builder on
+          /publish: these are the association's standing defaults, changed
+          rarely and permanently. Putting them inside the monthly send flow
+          would invite editing them by accident while sending, and would
+          make a one-off edit look like it might be temporary when it is
+          not. */}
+      <div style={{ ...sectionStyle, marginTop: '20px' }}>
+        <h4 style={sectionTitleStyle}>טקסטי הניוזלטר</h4>
+        <p style={templateIntroStyle}>
+          עריכת הטקסטים הקבועים בניוזלטר (לא כולל הכתבות עצמן, שמגיעות מהידיעות המאושרות).
+          שינוי כאן הוא קבוע ומשפיע על כל הניוזלטרים הבאים, עד שישונה מחדש.
+        </p>
+
+        <div style={templateLayoutStyle}>
+          <div style={fieldsColumnStyle}>
+            {FIELD_GROUPS.map((group) => (
+              <div key={group.heading} style={fieldGroupStyle}>
+                <h5 style={fieldGroupHeadingStyle}>{group.heading}</h5>
+                {group.fields.map((field) => (
+                  <TemplateField
+                    key={field.key}
+                    field={field}
+                    value={formValues[field.key] ?? ''}
+                    onChange={(value) => setField(field.key, value)}
+                    onReset={() => resetField(field.key)}
+                  />
+                ))}
+              </div>
+            ))}
+
+            <div style={saveRowStyle}>
+              <button style={saveBtnStyle} disabled={saving} onClick={handleSave}>
+                {saving ? 'שומרת...' : 'שמירה'}
+              </button>
+              {saved && <span style={savedNoteStyle}>נשמר ✓</span>}
+            </div>
+          </div>
+
+          <div style={previewColumnStyle}>
+            <h5 style={fieldGroupHeadingStyle}>תצוגה מקדימה (עם כתבות לדוגמה)</h5>
+            <iframe
+              title="תצוגה מקדימה של הניוזלטר"
+              srcDoc={previewHtml}
+              style={previewFrameStyle}
+            />
+          </div>
+        </div>
+      </div>
     </section>
+  );
+}
+
+function TemplateField({ field, value, onChange, onReset }) {
+  const isDefault = value === field.default;
+  const showUrlWarning = field.isUrl && value !== '' && !URL_PATTERN.test(value);
+  const dir = field.isLtr ? 'ltr' : 'rtl';
+
+  return (
+    <div style={fieldRowStyle}>
+      <div style={fieldLabelRowStyle}>
+        <label style={fieldLabelStyle}>{field.label}</label>
+        {!isDefault && (
+          <button type="button" style={resetBtnStyle} onClick={onReset}>
+            ברירת מחדל
+          </button>
+        )}
+      </div>
+      {field.multiline ? (
+        <textarea
+          style={textareaStyle}
+          value={value}
+          dir={dir}
+          rows={3}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <input
+          style={inputStyle}
+          value={value}
+          dir={dir}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+      {showUrlWarning && (
+        <span style={urlWarningStyle}>
+          הכתובת לא נראית כקישור תקין (צריכה להתחיל ב-http:// או https://)
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -102,4 +298,131 @@ const toggleThumbStyle = {
   background: '#fff',
   boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
   transition: 'transform 0.2s',
+};
+
+const templateIntroStyle = {
+  margin: '0 0 16px 0',
+  fontSize: '0.85rem',
+  color: 'var(--text)',
+  lineHeight: 1.6,
+};
+
+const templateLayoutStyle = {
+  display: 'flex',
+  gap: '24px',
+  flexWrap: 'wrap',
+  alignItems: 'flex-start',
+};
+
+const fieldsColumnStyle = {
+  flex: '1 1 380px',
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '20px',
+};
+
+const previewColumnStyle = {
+  flex: '1 1 380px',
+  minWidth: 0,
+  position: 'sticky',
+  top: '20px',
+};
+
+const fieldGroupStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '12px',
+};
+
+const fieldGroupHeadingStyle = {
+  margin: '0 0 4px 0',
+  fontSize: '0.8rem',
+  fontWeight: 700,
+  color: 'var(--text)',
+};
+
+const fieldRowStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+};
+
+const fieldLabelRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '10px',
+};
+
+const fieldLabelStyle = {
+  fontSize: '0.85rem',
+  color: 'var(--text-h)',
+  fontWeight: 500,
+};
+
+const resetBtnStyle = {
+  padding: '2px 10px',
+  borderRadius: '4px',
+  border: '1px solid var(--border)',
+  cursor: 'pointer',
+  fontSize: '0.75rem',
+  background: 'var(--bg)',
+  color: 'var(--text)',
+  flexShrink: 0,
+};
+
+const inputStyle = {
+  boxSizing: 'border-box',
+  width: '100%',
+  padding: '8px 10px',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  fontSize: '0.9rem',
+  fontFamily: 'inherit',
+  background: 'var(--bg)',
+  color: 'var(--text-h)',
+};
+
+const textareaStyle = {
+  ...inputStyle,
+  resize: 'vertical',
+  lineHeight: 1.5,
+};
+
+const urlWarningStyle = {
+  fontSize: '0.78rem',
+  color: '#b45309',
+};
+
+const saveRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  marginTop: '4px',
+};
+
+const saveBtnStyle = {
+  padding: '8px 22px',
+  borderRadius: '6px',
+  border: '1px solid var(--accent)',
+  cursor: 'pointer',
+  fontSize: '0.9rem',
+  fontWeight: 700,
+  background: 'var(--accent)',
+  color: '#fff',
+};
+
+const savedNoteStyle = {
+  fontSize: '0.85rem',
+  color: 'var(--secondary, #4abfb0)',
+  fontWeight: 600,
+};
+
+const previewFrameStyle = {
+  width: '100%',
+  height: '640px',
+  border: '1px solid var(--border)',
+  borderRadius: '6px',
+  background: '#fff',
 };

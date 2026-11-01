@@ -135,9 +135,30 @@ function App() {
   // changes is merged into the current overrides here, in JS, before the
   // write — a different merge from the one buildNewsletterHtml.js does
   // (defaults <- overrides); this one is (current overrides <- changes).
+  // Merge, not a wholesale replace, on purpose: a later screen may write
+  // other keys into this same row (e.g. the planned per-banner button
+  // toggles), and a wholesale replace from here would silently wipe them
+  // out from under it.
+  //
+  // A key whose value in `changes` is `undefined` means "delete this
+  // override, go back to the hard-coded default" (SettingsPage.jsx's
+  // per-field "ברירת מחדל" control) — spreading `changes` over `previous`
+  // would NOT do that: `{...a, k: undefined}` keeps `k` as an own property
+  // set to `undefined`, which the merge in buildNewsletterHtml.js reads as
+  // "present, override with undefined", not "absent, use the default".
+  // Deleting the key for real is the only way restoring a field actually
+  // reaches the default rather than freezing it at whatever `undefined`
+  // renders as.
   const onUpdateNewsletterTemplate = async (changes) => {
     const previous = newsletterOverrides;
-    const next = { ...previous, ...changes };
+    const next = { ...previous };
+    for (const key of Object.keys(changes)) {
+      if (changes[key] === undefined) {
+        delete next[key];
+      } else {
+        next[key] = changes[key];
+      }
+    }
 
     setNewsletterOverrides(next);
 
@@ -209,12 +230,19 @@ function App() {
                   articles={articles}
                   onUpdate={onUpdate}
                   newsletterOverrides={newsletterOverrides}
-                  onUpdateNewsletterTemplate={onUpdateNewsletterTemplate}
                 />
               }
             />
             <Route path="/stats" element={<StatsPage articles={articles} />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/settings"
+              element={
+                <SettingsPage
+                  newsletterOverrides={newsletterOverrides}
+                  onUpdateNewsletterTemplate={onUpdateNewsletterTemplate}
+                />
+              }
+            />
           </Routes>
         )}
       </DashboardLayout>

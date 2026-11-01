@@ -37,14 +37,15 @@ const TABS = [
   },
 ];
 
-// App.jsx also passes onUpdateNewsletterTemplate on this route — the save
-// half of the (not yet built) newsletter-text-editing screen. It isn't
-// destructured here because nothing in this file calls it yet; it is
-// already sitting on this component's props for whichever future piece
-// (here or a new sibling of NewsletterBuilder) ends up hosting that UI,
-// without needing another change to App.jsx. newsletterOverrides IS used
-// already: passed straight into NewsletterBuilder so the preview renders
-// with any saved overrides merged in (see buildNewsletterHtml.js).
+// newsletterOverrides: read-only here, passed straight into NewsletterBuilder
+// so the preview renders with any saved overrides merged in (see
+// buildNewsletterHtml.js). The matching save callback,
+// onUpdateNewsletterTemplate, is NOT passed on this route — editing the
+// template lives on the Settings screen (SettingsPage.jsx), not here. These
+// are the association's standing defaults, changed rarely and permanently;
+// putting the editor inside this monthly send flow would invite editing
+// them by accident while sending, and make a one-off edit look temporary
+// when it isn't.
 export default function PublishPage({ articles, onUpdate, newsletterOverrides }) {
   const [activeTab, setActiveTab] = useState('newsletter');
 
