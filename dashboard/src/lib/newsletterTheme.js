@@ -42,6 +42,15 @@ export const STRINGS = {
     'המחקר על SMA מתקדם בקצב שלא הכרנו - וכל פריצת דרך מתורגמת אצלנו לשאלה ' + // deliberately a plain hyphen here, not publisher.py's em dash (that's the only reader-facing character changed anywhere in this file) — an em dash reads as machine-written to Hebrew readers, and this text goes to families; the fidelity check handles this one exception explicitly rather than loosening its word-for-word comparison
     'אחת: מה זה אומר עבור הילדים והמבוגרים שלנו, כאן ועכשיו.'
   ),
+  // The opener band's optional button, added later — not part of the
+  // original verbatim port. Whether it shows at all is
+  // show_opener_button, a BOOLEAN override handled separately in
+  // buildNewsletterHtml.js (see BOOLEAN_OVERRIDE_DEFAULTS there for why
+  // it can't live here as a STRINGS entry) — these two are only its text
+  // and destination, editable like any other template string even while
+  // the button itself is hidden by default.
+  opener_button: 'למידע נוסף ›',
+  opener_button_url: 'https://www.sma.org.il',
   read_more: 'להמשך קריאה ›',
   disclaimer: (
     'המידע מובא לידע כללי ולהנגשת המחקר העדכני, ואינו מהווה ייעוץ או המלצה ' +

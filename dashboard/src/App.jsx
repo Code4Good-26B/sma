@@ -230,6 +230,7 @@ function App() {
                   articles={articles}
                   onUpdate={onUpdate}
                   newsletterOverrides={newsletterOverrides}
+                  onUpdateNewsletterTemplate={onUpdateNewsletterTemplate}
                 />
               }
             />

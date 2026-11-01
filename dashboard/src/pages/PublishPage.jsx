@@ -37,16 +37,19 @@ const TABS = [
   },
 ];
 
-// newsletterOverrides: read-only here, passed straight into NewsletterBuilder
-// so the preview renders with any saved overrides merged in (see
-// buildNewsletterHtml.js). The matching save callback,
-// onUpdateNewsletterTemplate, is NOT passed on this route — editing the
-// template lives on the Settings screen (SettingsPage.jsx), not here. These
-// are the association's standing defaults, changed rarely and permanently;
-// putting the editor inside this monthly send flow would invite editing
-// them by accident while sending, and make a one-off edit look temporary
-// when it isn't.
-export default function PublishPage({ articles, onUpdate, newsletterOverrides }) {
+// newsletterOverrides and onUpdateNewsletterTemplate both flow through to
+// NewsletterBuilder: newsletterOverrides so the preview renders with any
+// saved overrides merged in (see buildNewsletterHtml.js), and
+// onUpdateNewsletterTemplate so NewsletterBuilder's two per-band button
+// toggles can save straight into the same row. Editing the TEMPLATE TEXT
+// itself still lives only on the Settings screen (SettingsPage.jsx), not
+// here — these are the association's standing defaults, changed rarely and
+// permanently, and putting that editor inside this monthly send flow would
+// invite editing them by accident while sending. The two toggles are
+// different: they're a per-build choice Michal makes each time she
+// generates an issue, which is why they live here instead, even though
+// they persist to the same overrides row via the same callback.
+export default function PublishPage({ articles, onUpdate, newsletterOverrides, onUpdateNewsletterTemplate }) {
   const [activeTab, setActiveTab] = useState('newsletter');
 
   const approved = articles.filter(a => a.review_status === 'approved');
@@ -83,6 +86,7 @@ export default function PublishPage({ articles, onUpdate, newsletterOverrides })
           eligibleArticles={pendingArticles}
           onUpdate={onUpdate}
           templateOverrides={newsletterOverrides}
+          onUpdateNewsletterTemplate={onUpdateNewsletterTemplate}
         />
       )}
 

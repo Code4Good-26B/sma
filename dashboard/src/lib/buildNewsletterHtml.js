@@ -77,6 +77,30 @@ function resolveDonationUrl(overrides) {
     : DONATION_URL;
 }
 
+// Two on/off switches for the optional per-band buttons — toggled in
+// NewsletterBuilder.jsx, not Settings, since they're a per-build choice
+// Michal makes each time (that she happens to leave on becomes the
+// remembered default), not template TEXT. Not in STRINGS and therefore not
+// reached by EDITABLE_STRING_KEYS/mergeStrings on purpose: both of those
+// treat every STRINGS value as display text — mergeStrings merges them,
+// escapeStrings runs every one through escapeHtml — and a boolean is
+// neither; it would either be coerced to the text "true"/"false" by
+// String(value) the moment it reached escapeHtml, or (since
+// EDITABLE_STRING_KEYS is derived from STRINGS's own keys) simply never
+// exist there to be picked up at all. Resolved explicitly here instead,
+// with the same presence-wins rule as mergeStrings.
+export const BOOLEAN_OVERRIDE_DEFAULTS = {
+  show_opener_button: false, // no button in the opener band today
+  show_donation_button: true, // the donation band always has one today
+};
+
+export function resolveBooleanOverride(overrides, key) {
+  const safeOverrides = overrides && typeof overrides === 'object' ? overrides : {};
+  return Object.prototype.hasOwnProperty.call(safeOverrides, key)
+    ? Boolean(safeOverrides[key])
+    : BOOLEAN_OVERRIDE_DEFAULTS[key];
+}
+
 // The year is always computed, never editable (see newsletterTheme.js) —
 // built from the same Date the caller already computed for issueDate, not
 // from a new Date() in here, so this file stays pure and testable without
@@ -151,10 +175,17 @@ function renderArticleCard(article, s) {
   const title = escapeHtml(article.title);
   const url = escapeHtml(article.url);
   const bodyHtml = article.text ? renderParagraphs(article.text) : '';
+  // Chosen per-build in NewsletterBuilder.jsx, never persisted (see its
+  // own comment on why) — article.imageUrl is simply absent/empty when
+  // nothing was pasted, same as an article with no body text above.
+  // alt="" on purpose: decorative, the title already carries the meaning.
+  const imageHtml = article.imageUrl
+    ? `<img src="${escapeHtml(article.imageUrl)}" alt="" style="display:block; width:100%; height:auto; border-radius:14px; margin-bottom:14px;">`
+    : '';
   return `            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="${s.dir}" style="background:${t.white}; border:1px solid ${t.line}; border-radius:14px; margin-bottom:18px;">
               <tr>
                 <td style="padding:22px 24px;">
-                  <div style="font-family:${t.font}; font-size:20px; font-weight:800; line-height:1.2; color:${t.ink}; text-align:${START};">${title}</div>
+${imageHtml}                  <div style="font-family:${t.font}; font-size:20px; font-weight:800; line-height:1.2; color:${t.ink}; text-align:${START};">${title}</div>
 ${bodyHtml}
                   <div style="margin-top:14px; text-align:${START};"><a href="${url}" target="_blank" rel="noopener" style="font-family:${t.font}; font-size:15px; font-weight:700; color:${t.coral_ink}; text-decoration:none;">${s.read_more}</a></div>
                 </td>
@@ -176,6 +207,24 @@ export function buildNewsletterHtml(articles, issueDate, year, overrides) {
   const copyright = buildCopyrightLine(year, s.copyright_tail);
   const list = Array.isArray(articles) ? articles : [];
   const cardsHtml = list.map((article) => renderArticleCard(article, s)).join('');
+
+  // Second instance of a button that already exists (the donation one
+  // below), not a new design: same markup conventions (target="_blank"
+  // rel="noopener", inline styles, table-safe), colours straight from
+  // THEME. coral fill / white text here, rather than the donation
+  // button's white fill / coral_deep text, because this band's own
+  // background (coral_soft, a light wash) needs the opposite contrast to
+  // stand out the same way the donation button does against ITS band
+  // (the saturated coral).
+  const openerButtonHtml = resolveBooleanOverride(overrides, 'show_opener_button')
+    ? `<div style="margin-top:22px;"><a href="${s.opener_button_url}" target="_blank" rel="noopener" style="display:inline-block; background:${t.coral}; color:${t.white}; font-family:${t.font}; font-size:17px; font-weight:700; text-decoration:none; padding:14px 30px; border-radius:999px;">${s.opener_button}</a></div>`
+    : '';
+
+  // Band stays otherwise intact when this is off — the heading above it
+  // keeps its own margin/styling untouched either way.
+  const donationButtonHtml = resolveBooleanOverride(overrides, 'show_donation_button')
+    ? `<a href="${donationUrl}" target="_blank" rel="noopener" style="display:inline-block; background:${t.white}; color:${t.coral_deep}; font-family:${t.font}; font-size:17px; font-weight:700; text-decoration:none; padding:14px 30px; border-radius:999px;">${s.donation_button}</a>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="${s.lang_attr}" dir="${s.dir}">
@@ -211,7 +260,7 @@ export function buildNewsletterHtml(articles, issueDate, year, overrides) {
 
         <tr>
           <td align="center" style="background:${t.coral_soft}; padding:30px 44px;">
-            <div style="max-width:460px; margin:0 auto; font-family:${t.font}; font-size:20px; font-weight:600; line-height:1.45; color:${t.ink};">${s.opener}</div>
+            <div style="max-width:460px; margin:0 auto; font-family:${t.font}; font-size:20px; font-weight:600; line-height:1.45; color:${t.ink};">${s.opener}</div>${openerButtonHtml}
           </td>
         </tr>
 
@@ -226,7 +275,7 @@ ${cardsHtml}            <div style="margin-top:18px; font-family:${t.font}; font
         <tr>
           <td align="center" bgcolor="${t.coral}" style="background:${t.coral}; padding:34px 44px;">
             <div style="max-width:380px; margin:0 auto 22px auto; font-family:${t.font}; font-size:25px; font-weight:800; line-height:1.25; color:${t.white};">${s.donation_heading}</div>
-            <a href="${donationUrl}" target="_blank" rel="noopener" style="display:inline-block; background:${t.white}; color:${t.coral_deep}; font-family:${t.font}; font-size:17px; font-weight:700; text-decoration:none; padding:14px 30px; border-radius:999px;">${s.donation_button}</a>
+            ${donationButtonHtml}
           </td>
         </tr>
 
@@ -270,12 +319,22 @@ export function buildNewsletterPlainText(articles, issueDate, year, overrides) {
   const donationUrl = resolveDonationUrl(overrides);
   const copyright = buildCopyrightLine(year, s.copyright_tail);
   const list = Array.isArray(articles) ? articles : [];
-  const lines = [`${s.title_a} ${s.title_b} · ${issueDate}`, '', s.opener, '', s.section_heading, ''];
+  // Images are ignored entirely here — there is no plain-text equivalent
+  // of an inline image, and article.imageUrl is simply never read below.
+  const lines = [`${s.title_a} ${s.title_b} · ${issueDate}`, '', s.opener];
+  if (resolveBooleanOverride(overrides, 'show_opener_button')) {
+    lines.push('', `${s.opener_button} ${s.opener_button_url}`);
+  }
+  lines.push('', s.section_heading, '');
   for (const a of list) {
     lines.push(a.title, '');
     if (a.text) lines.push(a.text.trim(), '');
     lines.push(`${s.read_more} ${a.url}`, '', '---', '');
   }
-  lines.push(s.disclaimer, '', s.donation_heading, `${s.donation_button} ${donationUrl}`, '', copyright);
+  lines.push(s.disclaimer, '', s.donation_heading);
+  if (resolveBooleanOverride(overrides, 'show_donation_button')) {
+    lines.push(`${s.donation_button} ${donationUrl}`);
+  }
+  lines.push('', copyright);
   return lines.join('\n');
 }

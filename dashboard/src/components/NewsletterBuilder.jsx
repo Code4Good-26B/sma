@@ -17,16 +17,32 @@
 // ("Dashboard (as Publisher)") for the same reasoning applied to the
 // (not yet built) website copy flow.
 import { useState } from 'react';
-import { buildNewsletterHtml, buildNewsletterPlainText } from '../lib/buildNewsletterHtml';
+import {
+  buildNewsletterHtml,
+  buildNewsletterPlainText,
+  resolveBooleanOverride,
+  BOOLEAN_OVERRIDE_DEFAULTS,
+} from '../lib/buildNewsletterHtml';
 import { formatIssueDateHe } from '../lib/newsletterTheme';
 import { selectNewsletterBatch } from '../lib/selectNewsletterBatch';
 
-export default function NewsletterBuilder({ eligibleArticles, onUpdate, templateOverrides = {} }) {
+export default function NewsletterBuilder({
+  eligibleArticles,
+  onUpdate,
+  templateOverrides = {},
+  onUpdateNewsletterTemplate,
+}) {
   const [preview, setPreview] = useState(null); // { html, plainText, articleIds, generatedAt }
   const [copyState, setCopyState] = useState(null); // 'ok' | 'error' | null
   const [hasExported, setHasExported] = useState(false);
   const [marking, setMarking] = useState(false);
   const [markResult, setMarkResult] = useState(null); // { ok, total } | null
+  // Keyed by article id, this session only — deliberately NOT persisted
+  // (no database column). An article that's been sent in a newsletter can
+  // never be sent in another one (the newsletter_batch_id guard), so by
+  // construction an image chosen for this issue has no second use once
+  // it's sent. Lost on reload — intentional, not a gap to fix.
+  const [imageUrls, setImageUrls] = useState({});
 
   const {
     included: articlesWithText,
@@ -34,6 +50,25 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate, template
     canGenerate,
     generateLabel,
   } = selectNewsletterBatch(eligibleArticles);
+
+  // Derived fresh from templateOverrides on every render rather than kept
+  // as separate component state: clicking a toggle below calls
+  // onUpdateNewsletterTemplate directly, which updates the SAME overrides
+  // row these are read from, so there's nothing for a second copy of this
+  // state to get out of sync with.
+  const showOpenerButton = resolveBooleanOverride(templateOverrides, 'show_opener_button');
+  const showDonationButton = resolveBooleanOverride(templateOverrides, 'show_donation_button');
+
+  // Writes the literal value only when it differs from the hard-coded
+  // default, and deletes the override (via `undefined`) when it's flipped
+  // back to the default — same "stay empty until something genuinely
+  // changes" discipline as SettingsPage.jsx's computeChanges, just applied
+  // to one key immediately instead of batched behind a save button.
+  const toggleBooleanOverride = async (key, nextChecked) => {
+    const changes = { [key]: nextChecked === BOOLEAN_OVERRIDE_DEFAULTS[key] ? undefined : nextChecked };
+    await onUpdateNewsletterTemplate(changes);
+    // The failure toast already fires from App.jsx on error.
+  };
 
   const handleGenerate = () => {
     const generatedAt = new Date();
@@ -44,6 +79,7 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate, template
       title: a.reviewed_title_he ?? a.title_he ?? '',
       url: a.source_url,
       text: a.newsletter_text_he ?? '',
+      imageUrl: imageUrls[a.id] || '',
     }));
     const issueDate = formatIssueDateHe(generatedAt);
     // The copyright line's year comes from this same generatedAt, not a
@@ -127,6 +163,31 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate, template
 
   return (
     <div style={builderCardStyle}>
+      {/* Toggles, not a field on SettingsPage: this is a per-build choice
+          Michal makes each time she generates an issue, not standing
+          template text — but whatever she leaves it on becomes the
+          remembered default for next time (the hint below says so), since
+          both save straight into the same overrides row. */}
+      <div style={buttonTogglesRowStyle}>
+        <label style={toggleLabelStyle}>
+          <input
+            type="checkbox"
+            checked={showOpenerButton}
+            onChange={(e) => toggleBooleanOverride('show_opener_button', e.target.checked)}
+          />
+          כפתור בבאנר הפתיחה
+        </label>
+        <label style={toggleLabelStyle}>
+          <input
+            type="checkbox"
+            checked={showDonationButton}
+            onChange={(e) => toggleBooleanOverride('show_donation_button', e.target.checked)}
+          />
+          כפתור תרומה בבאנר התרומה
+        </label>
+        <span style={toggleHintStyle}>הבחירה נשמרת כברירת מחדל לניוזלטרים הבאים, לא רק לזה</span>
+      </div>
+
       <div style={topRowStyle}>
         <button style={generateBtnStyle} disabled={!canGenerate} onClick={handleGenerate}>
           {generateLabel}
@@ -156,6 +217,39 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate, template
               <li key={a.id}>{a.reviewed_title_he ?? a.title_he ?? '(ללא כותרת)'}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* One image per article, chosen here and here only — see
+          imageUrls's own comment above for why nothing of this is saved. */}
+      {articlesWithText.length > 0 && (
+        <div style={articleImagesSectionStyle}>
+          <p style={articleImagesHeadingStyle}>
+            תמונה לכתבה (אופציונלי, לניוזלטר הזה בלבד — לא נשמר להרצה הבאה):
+          </p>
+          {articlesWithText.map((a) => (
+            <div key={a.id} style={articleImageRowStyle}>
+              <span style={articleImageTitleStyle}>
+                {a.reviewed_title_he ?? a.title_he ?? '(ללא כותרת)'}
+              </span>
+              <input
+                style={articleImageInputStyle}
+                type="text"
+                dir="ltr"
+                placeholder="כתובת URL של תמונה (אופציונלי)"
+                value={imageUrls[a.id] ?? ''}
+                onChange={(e) =>
+                  setImageUrls((prev) => ({ ...prev, [a.id]: e.target.value }))
+                }
+              />
+              {imageUrls[a.id] && (
+                // No onError handling on purpose: the browser's own
+                // broken-image glyph IS the "obvious the moment it's
+                // pasted" signal a bad URL needs.
+                <img src={imageUrls[a.id]} alt="" style={articleImageThumbStyle} />
+              )}
+            </div>
+          ))}
         </div>
       )}
 
@@ -214,6 +308,77 @@ const topRowStyle = {
   alignItems: 'center',
   gap: '14px',
   flexWrap: 'wrap',
+};
+
+const buttonTogglesRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '18px',
+  flexWrap: 'wrap',
+  marginBottom: '14px',
+  paddingBottom: '14px',
+  borderBottom: '1px solid var(--border, #e0e0e0)',
+};
+
+const toggleLabelStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  fontSize: '0.85rem',
+  color: 'var(--text-h)',
+  cursor: 'pointer',
+};
+
+const toggleHintStyle = {
+  fontSize: '0.78rem',
+  color: 'var(--text)',
+  opacity: 0.75,
+};
+
+const articleImagesSectionStyle = {
+  marginTop: '16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+};
+
+const articleImagesHeadingStyle = {
+  margin: 0,
+  fontSize: '0.85rem',
+  color: 'var(--text)',
+};
+
+const articleImageRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '10px',
+  flexWrap: 'wrap',
+};
+
+const articleImageTitleStyle = {
+  flex: '1 1 220px',
+  fontSize: '0.85rem',
+  color: 'var(--text-h)',
+};
+
+const articleImageInputStyle = {
+  flex: '1 1 260px',
+  boxSizing: 'border-box',
+  padding: '6px 10px',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  fontSize: '0.85rem',
+  background: 'var(--bg)',
+  color: 'var(--text-h)',
+};
+
+const articleImageThumbStyle = {
+  width: '44px',
+  height: '44px',
+  objectFit: 'cover',
+  borderRadius: '6px',
+  border: '1px solid var(--border)',
+  flexShrink: 0,
 };
 
 const generateBtnStyle = {

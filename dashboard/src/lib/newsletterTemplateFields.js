@@ -30,6 +30,8 @@ const LABELS = {
   title_b: 'כותרת – מילה שנייה',
   tagline: 'סלוגן',
   opener: 'טקסט הפתיחה',
+  opener_button: 'טקסט כפתור הפתיחה (מוצג רק אם הכפתור מופעל בעת בניית הניוזלטר)',
+  opener_button_url: 'קישור כפתור הפתיחה',
   kicker: 'כיתוב קטן מעל אזור הכתבות',
   section_heading: 'כותרת אזור הכתבות',
   read_more: 'טקסט "להמשך קריאה"',
@@ -43,6 +45,7 @@ const LABELS = {
   site_label: 'טקסט קישור לאתר',
   site_url: 'קישור לאתר',
   facebook_label: 'טקסט קישור לפייסבוק',
+  footer_slogan: 'סלוגן בתחתית (לצד הלוגו)',
   copyright_tail: 'טקסט זכויות (אחרי השנה)',
   logo_alt: 'טקסט חלופי ללוגו (alt, לא התמונה עצמה)',
 };
@@ -52,25 +55,28 @@ const LONG_TEXT_KEYS = new Set(['opener', 'disclaimer', 'donation_heading', 'sec
 
 // Destinations, not prose — get the inline "looks like a URL?" warning
 // (see SettingsPage.jsx) rather than a hard validator.
-const URL_KEYS = new Set([DONATION_URL_KEY, 'site_url']);
+const URL_KEYS = new Set(['opener_button_url', DONATION_URL_KEY, 'site_url']);
 
 // Latin-alphabet values that read better left-to-right even inside this
 // RTL screen, regardless of whether they're also a URL.
-const LTR_KEYS = new Set([DONATION_URL_KEY, 'site_url', 'contact_email', 'contact_phone']);
+const LTR_KEYS = new Set(['opener_button_url', DONATION_URL_KEY, 'site_url', 'contact_email', 'contact_phone']);
 
 // Order and grouping to match the newsletter itself, top to bottom, so
 // Michal can find a field by where she sees it rendered. Deliberately
-// allowed to be incomplete: see buildFieldGroups below.
+// allowed to be incomplete: see buildFieldGroups below — footer_slogan
+// was missing from here once already (it landed in the fallback group,
+// labelled with its raw key, until this was fixed), which is exactly the
+// visible-rather-than-silent failure that mechanism exists for.
 const GROUPS = [
   { heading: 'כותרת עליונה', keys: ['title_a', 'title_b', 'tagline'] },
-  { heading: 'באנר פתיחה', keys: ['opener'] },
+  { heading: 'באנר פתיחה', keys: ['opener', 'opener_button', 'opener_button_url'] },
   { heading: 'אזור הכתבות', keys: ['kicker', 'section_heading', 'read_more', 'disclaimer'] },
   { heading: 'באנר תרומה', keys: ['donation_heading', 'donation_button', DONATION_URL_KEY] },
   {
     heading: 'תחתית',
     keys: [
       'phone_prefix', 'contact_phone', 'contact_email',
-      'site_label', 'site_url', 'facebook_label', 'copyright_tail', 'logo_alt',
+      'site_label', 'site_url', 'facebook_label', 'footer_slogan', 'copyright_tail', 'logo_alt',
     ],
   },
 ];

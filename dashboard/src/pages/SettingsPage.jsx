@@ -75,20 +75,40 @@ export default function SettingsPage({ newsletterOverrides, onUpdateNewsletterTe
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Snapshot of newsletterOverrides taken right before handleSave calls
+  // onUpdateNewsletterTemplate. App.jsx updates that state optimistically
+  // (triggering the resync below, harmlessly — it matches what's already
+  // in the form) and, ONLY if the write then fails, reverts it by
+  // reassigning this exact same object reference back. That revert is the
+  // ONLY way newsletterOverrides can become reference-equal to a value it
+  // held earlier in this session — a successful write always produces a
+  // brand-new merged object — so landing back on this snapshot
+  // unambiguously means "our own save just failed", and is the signal to
+  // skip the resync below instead of wiping out what Michal typed. A
+  // plain state value, not a ref: the check below runs during render (the
+  // same "adjust state during render" pattern as prevOverrides itself),
+  // and React's rules disallow reading or writing a ref there.
+  const [pendingRevertTarget, setPendingRevertTarget] = useState(null);
+
   // Re-derives the form whenever newsletterOverrides changes identity:
   // once when App.jsx's own fetch resolves after this screen has already
   // mounted (newsletterOverrides starts at {} before that), and again
-  // after every successful save from this same screen (App.jsx updates it
-  // optimistically, which flows back down here as a new prop). Both are
-  // exactly when the form SHOULD reflect the latest saved state, and
-  // nothing else writes this row. Adjusting state during render rather
-  // than in a useEffect — React's own documented pattern for resetting
-  // derived state when a prop changes — avoids the extra render an effect
-  // would cause.
+  // after every successful save from this same screen. Both are exactly
+  // when the form SHOULD reflect the latest saved state. The one exception
+  // is the failed-save revert described above — skipped so a dropped
+  // connection doesn't erase a paragraph Michal just rewrote, leaving
+  // nothing to retry but pressing "שמירה" again. Adjusting state during
+  // render rather than in a useEffect — React's own documented pattern for
+  // resetting derived state when a prop changes — avoids the extra render
+  // an effect would cause.
   const [prevOverrides, setPrevOverrides] = useState(newsletterOverrides);
   if (newsletterOverrides !== prevOverrides) {
     setPrevOverrides(newsletterOverrides);
-    setFormValues(buildInitialValues(newsletterOverrides));
+    if (newsletterOverrides === pendingRevertTarget) {
+      setPendingRevertTarget(null);
+    } else {
+      setFormValues(buildInitialValues(newsletterOverrides));
+    }
   }
 
   const toggle = (checked) => {
@@ -112,12 +132,20 @@ export default function SettingsPage({ newsletterOverrides, onUpdateNewsletterTe
 
   const handleSave = async () => {
     setSaving(true);
+    // Set right before the write so the render-time check above can
+    // recognize App.jsx's revert-on-failure as exactly that, and leave
+    // formValues untouched instead of re-deriving it from the reverted
+    // (pre-edit) overrides — see pendingRevertTarget's own comment.
+    setPendingRevertTarget(newsletterOverrides);
     const changes = computeChanges(formValues, newsletterOverrides);
     const ok = await onUpdateNewsletterTemplate(changes);
     setSaving(false);
     // The failure toast already fires from App.jsx on error — nothing
     // else to show here on failure, only on success.
-    if (ok) setSaved(true);
+    if (ok) {
+      setPendingRevertTarget(null); // no revert coming; nothing to guard against
+      setSaved(true);
+    }
   };
 
   const previewHtml = buildNewsletterHtml(SAMPLE_ARTICLES, SAMPLE_ISSUE_DATE, SAMPLE_YEAR, formValues);
