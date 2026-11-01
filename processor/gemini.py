@@ -133,8 +133,21 @@ class _CallResult:
     # it didn't respond in time) — as opposed to the server responding with
     # an error status, or responding with something unusable. Distinct from
     # http_status because it is the one failure kind where retrying another
-    # candidate is actively harmful (see _generate), not just unhelpful.
+    # candidate used to be treated as actively harmful (see _generate) —
+    # now true only for the connection-level half of that, see is_timeout.
     is_network_error: bool = False
+    # True only when is_network_error was specifically a READ timeout (the
+    # server accepted the request and was merely slow), never for a
+    # connection-level failure (DNS failure, connection refused — the
+    # network itself unusable). Measured live: candidates in the same
+    # fallback chain answered at wildly different speeds within minutes of
+    # each other (one timed out at 180s while the very next candidate
+    # answered in 129s), so a slow model must not stop the chain the way an
+    # unreachable network does. Set in _call_gemini from the exception's
+    # TYPE, never from str(e) — a message-format change must not silently
+    # change control flow, the same reason _classify_failure reads HTTP
+    # status codes rather than parsed text.
+    is_timeout: bool = False
 
 
 def clean_article_text(text: str) -> str:
@@ -351,9 +364,15 @@ def _call_gemini(
         details = e.read().decode("utf-8", errors="replace")
         return _CallResult(outputs=None, error=f"Gemini HTTP {e.code}: {details}", http_status=e.code)
     except (urllib.error.URLError, TimeoutError) as e:
+        # A bare TimeoutError (the socket itself timed out) or a URLError
+        # whose .reason is one (urlopen's usual wrapping of a socket
+        # timeout) is a READ timeout, not a connection-level failure — see
+        # _CallResult.is_timeout. Checked on the exception's type, not on
+        # str(e), on purpose.
+        is_timeout = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError)
         return _CallResult(
             outputs=None, error=f"Gemini request failed: {e}", http_status=None,
-            is_network_error=True,
+            is_network_error=True, is_timeout=is_timeout,
         )
 
     try:
@@ -403,19 +422,39 @@ def _generate(
     """Try model_candidates in order for one prompt.
 
     The default is to try the next candidate, unless another attempt
-    cannot possibly help: either the failure is identical for every model
-    (401/403 — the same API key is used for every candidate, so every one
-    of them will return the same thing), or retrying costs too much
-    wall-clock time (a network error or timeout, at up to `timeout_seconds`
-    per attempt, cascading through every candidate). Everything else is
-    worth a second opinion from a different model: a retired model (404),
-    an exhausted quota (429 — quota is per-model, so another model has its
-    own), a transient overload (5xx), a status this rule's author never
-    anticipated, or a response that came back but was unusable (bad JSON,
-    a missing or empty field) — a different model may well succeed where
-    this one didn't. An allow-list of "safe to retry" codes was tried here
-    twice before and broke both times on a code nobody had seen yet; a
-    short deny-list of "definitely won't help" is the safer default.
+    cannot possibly help. There are exactly two such cases now:
+
+    - 401/403 — the same API key is used for every candidate, so every one
+      of them will return the same thing.
+    - A connection-level network failure (DNS failure, connection refused)
+      — the network itself is unusable, not merely slow.
+
+    A READ TIMEOUT IS DELIBERATELY NOT ONE OF THESE, even though it is also
+    `is_network_error`. It used to be treated the same as a connection
+    failure, on the theory that retrying costs too much wall-clock time
+    cascading through every candidate — but that reasoning turned out to be
+    wrong in practice. Measured live against the real API, within minutes
+    of each other on the same key: gemini-flash-latest timed out at 180s
+    while gemini-3.8-flash, the very next candidate in this exact list,
+    answered successfully at 129s; gemini-3.7-flash returned a 503 at 21s;
+    the two lite-tier candidates answered in 4.4s and 54.7s. A real Daily
+    pipeline run then showed every article across both passes dying on
+    gemini-flash-latest's timeout alone — the fallback chain never entered —
+    while gemini-3.8-flash was demonstrably answering at that same time.
+    Stopping on a timeout was discarding working candidates behind it, not
+    avoiding a slow one. See `_CallResult.is_timeout`, detected from the
+    exception's type rather than its message, and excluded from
+    `unrecoverable` below.
+
+    Everything else is worth a second opinion from a different model: a
+    retired model (404), an exhausted quota (429 — quota is per-model, so
+    another model has its own), a transient overload (5xx), a status this
+    rule's author never anticipated, or a response that came back but was
+    unusable (bad JSON, a missing or empty field) — a different model may
+    well succeed where this one didn't. An allow-list of "safe to retry"
+    codes was tried here twice before and broke both times on a code
+    nobody had seen yet; a short deny-list of "definitely won't help" is
+    the safer default.
 
     If `model` is given explicitly, only that model is tried — no
     fallback, and model_candidates is ignored — so a specific model can
@@ -447,11 +486,15 @@ def _generate(
         last_failure_kind = _classify_failure(call)
         is_last_candidate = i == len(candidates) - 1
 
-        # The only two cases where another attempt cannot help.
-        unrecoverable = call.is_network_error or call.http_status in (401, 403)
+        # The only two cases where another attempt cannot help. A timeout
+        # is explicitly carved out of is_network_error here — see the
+        # docstring above and _CallResult.is_timeout — so it falls through
+        # to the ordinary "try the next candidate" path below instead.
+        unrecoverable = (call.is_network_error and not call.is_timeout) or call.http_status in (401, 403)
 
         reason = (
-            "network error/timeout" if call.is_network_error
+            "read timeout" if call.is_timeout
+            else "network error" if call.is_network_error
             else f"HTTP {call.http_status}" if call.http_status is not None
             else "unusable response (bad JSON or missing/empty field)"
         )
@@ -474,7 +517,20 @@ def generate_hebrew_outputs(
     *,
     api_key: str,
     model: Optional[str] = None,
-    timeout_seconds: int = 60,
+    # 150, not 60: measured live, gemini-3.8-flash answered successfully at
+    # 129s — a 60s ceiling would have cut that call off and discarded a
+    # genuine success as a failure. 150s is the measured latency plus a
+    # margin, not a round number picked for looks.
+    #
+    # Budget check (re-derive this if either number changes): daily.yml
+    # allows 25 minutes per pass. Worst case per article is now
+    # (number of candidates x timeout_seconds) — 5 candidates x 150s = 12.5
+    # minutes for Pass 1 here (TRIAGE_MODEL_CANDIDATES), 3 x 150s = 7.5
+    # minutes for Pass 2 (see generate_newsletter_text below). At this
+    # project's real volume (1-4 articles per run) that stays inside the
+    # 25-minute budget, and the realistic case is far lower than worst
+    # case, since the chain stops at the first candidate that answers.
+    timeout_seconds: int = 150,
 ) -> GeminiResult:
     """Pass 1 (triage): generate title_he + summary_he."""
     return _generate(
@@ -490,7 +546,11 @@ def generate_newsletter_text(
     *,
     api_key: str,
     model: Optional[str] = None,
-    timeout_seconds: int = 60,
+    # 150, same as generate_hebrew_outputs above — see its comment for the
+    # measured latency and the budget check. Pass 2's own worst case:
+    # PUBLICATION_MODEL_CANDIDATES has 3 candidates, so 3 x 150s = 7.5
+    # minutes, inside daily.yml's 25-minute-per-pass budget.
+    timeout_seconds: int = 150,
 ) -> GeminiResult:
     """Pass 2 (publication text): generate newsletter_text_he."""
     return _generate(
