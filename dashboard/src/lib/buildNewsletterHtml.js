@@ -179,8 +179,14 @@ function renderArticleCard(article, s) {
   // own comment on why) — article.imageUrl is simply absent/empty when
   // nothing was pasted, same as an article with no body text above.
   // alt="" on purpose: decorative, the title already carries the meaning.
+  // referrerpolicy="no-referrer": a mail client generally sends no
+  // Referer header when it fetches an image; without this, the inbox
+  // request and the preview's own request (a plain browser <img>, which
+  // DOES send one naming this dashboard's origin) would hit the image
+  // host differently, and many news sites block hotlinking on exactly
+  // that header — see NewsletterBuilder.jsx's thumbnail for the same fix.
   const imageHtml = article.imageUrl
-    ? `<img src="${escapeHtml(article.imageUrl)}" alt="" style="display:block; width:100%; height:auto; border-radius:14px; margin-bottom:14px;">`
+    ? `<img src="${escapeHtml(article.imageUrl)}" alt="" referrerpolicy="no-referrer" style="display:block; width:100%; height:auto; border-radius:14px; margin-bottom:14px;">`
     : '';
   return `            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="${s.dir}" style="background:${t.white}; border:1px solid ${t.line}; border-radius:14px; margin-bottom:18px;">
               <tr>

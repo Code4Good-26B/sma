@@ -268,6 +268,15 @@ export default function NewsletterBuilder({
                   src={imageUrls[a.id]}
                   alt=""
                   style={articleImageThumbStyle}
+                  // A mail client generally sends no Referer header; a
+                  // browser <img> otherwise sends one naming this
+                  // dashboard's own origin, and many news sites block
+                  // hotlinking on exactly that header. Without this, the
+                  // thumbnail can report "did not load" for an image the
+                  // actual newsletter email would display fine — this
+                  // makes the preview's verdict match what the real
+                  // request will look like.
+                  referrerPolicy="no-referrer"
                   onError={() => setImageLoadErrors((prev) => ({ ...prev, [a.id]: true }))}
                 />
               )}

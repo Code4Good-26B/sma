@@ -1,6 +1,6 @@
 # Project notes — SMA Israel news automation
 
-**Last updated:** 2026-09-29
+**Last updated:** 2026-11-01
 
 This file holds the context that lives nowhere else in the repository: why things
 are the way they are, and what must happen before this project changes hands.
@@ -33,7 +33,9 @@ behind all of this.
 The daily chain:
 
 ```
-08:00 (automatic)   collect SMA articles
+Daily, 05:17 UTC / 08:17 Israel time (automatic, nominally — see "Known
+limitations" below for how late this actually starts in practice):
+                    collect SMA articles
                     -> Pass 1: Hebrew title + short triage summary
                     -> Pass 2: Hebrew publication text, for approved articles only
 
@@ -107,6 +109,16 @@ been the only thing standing in front of the live site until this landed —
 was then switched off; see "Decisions that look wrong but are not" for why
 that is correct now rather than a regression.
 
+**A working Gemini API key on an association-owned Google account — the
+last item blocking a real handover.** Michal created the key from an
+established Google account belonging to the association, it was tested
+against every model the pipeline uses (`TRIAGE_MODEL_CANDIDATES` and
+`PUBLICATION_MODEL_CANDIDATES` in `processor/gemini.py`) before being
+trusted, the `GEMINI_API_KEY` GitHub secret was updated, and a manual Daily
+pipeline run confirmed it end to end. The volunteer's personal key is no
+longer used anywhere. One deliberate gap remains in how this was done — see
+"Decisions that look wrong but are not" below.
+
 ### Decided against
 
 **Moving the repository to a GitHub account registered to the project's
@@ -118,25 +130,16 @@ and its real, plainly-stated cost. This is not the same thing as the
 decision having no cost; read that entry before assuming it is safe to leave
 alone forever.
 
-### Still open — blocking
+**Asking Code4Good to preserve the repository after this cohort ends.**
+Not pursued — see "Decisions that look wrong but are not" below for the
+real cost of that.
 
-**A working Gemini API key on an association-owned Google account.** This
-is now the **last** item blocking a real handover. The key currently in the
-`GEMINI_API_KEY` GitHub secret still belongs to the volunteer's **personal**
-Google account. The project Gmail (`smaisrael2@gmail.com`) is **blocked by
-Google at the account level** — `403 PERMISSION_DENIED`, "Your project has
-been denied access". This was verified in September 2026 on two separate
-Cloud projects under that account, including a brand-new one, which rules
-out a per-project cause. What's been learned since: this is a widely
-reported 2026 problem, and Google staff on their own forums attribute it to
-a flag on the **account**, not the project — so creating yet another project
-under the same account cannot help. A **brand-new** Google account carries a
-real risk of tripping the same flag; an **old, established** account (the
-association's, with real history, not one created for this purpose) is
-materially safer. And regardless of which account this lands on, the
-existing rule stands: **a key that exists is not a key that works** —
-whatever key ends up here must be tested with a real API call before
-handover, not merely created.
+**Removing the volunteer's personal Supabase account from the "SMA Israel"
+organisation.** An earlier version of this checklist listed this under
+"Still open", to be done once the work was finished. It has been decided
+against — kept on purpose, not forgotten — see "Decisions that look wrong
+but are not" below for why, and for how Michal can still do this herself at
+any time.
 
 ### Still open — smaller
 
@@ -148,14 +151,6 @@ and the dashboard uses only the anon key (`dashboard/.env`,
 `.env.example` for the same reason. A credential nobody uses is a credential
 that gets copied somewhere careless at handover; if it's ever needed again it
 can be regenerated from Supabase → Settings → API in one click.
-
-**Remove the volunteer's personal Supabase account from the "SMA Israel"
-organisation, once the work is finished.** Until that happens, the
-association's database is still reachable by a private individual outside
-the association. This genuinely cannot be done any earlier: that membership
-is exactly what made the project transfer possible in the first place, and
-removing it mid-work would lock the volunteer out before the handover is
-done.
 
 **A recovery email address and a recovery phone number in Michal's name, for
 every account.** These exist independently of two-factor authentication —
@@ -173,14 +168,20 @@ what the dashboard's warning banner means; **the GitHub 60-day rule** (see
 `heartbeat.yml`); the Gemini quota point below; and the one-line fix if a
 model 404s (see `.github/README.md`).
 
-**Look up the Gemini free-tier quota in AI Studio, for whichever project
-ends up owning the final key.** Google no longer publishes these numbers in
-its documentation — the rate-limits page now says limits are per **project**
-and are shown inside AI Studio itself once signed into that project. The
-"~20 requests/day per model" figure this document used to carry is this
-project's own **old observation**, not documentation, and it may not hold
-for whichever project the final key belongs to. The quota is shared between
-Pass 1 and Pass 2 — both draw on the same project's allowance.
+**Look up the Gemini free-tier quota in AI Studio, for the account the key
+now actually lives on.** This is no longer a hypothetical "whichever
+project ends up owning the final key" — the key is now the association's
+own (see "Done" above), so this is a concrete, one-time lookup against a
+known account, not a wait-and-see item. Google no longer publishes these
+numbers in its documentation — the rate-limits page now says limits are
+per **project** and are shown inside AI Studio itself once signed into that
+account. The "~20 requests/day per model" figure this document used to
+carry is this project's own **old observation**, not documentation, and it
+was measured against the volunteer's **personal** Google Cloud project —
+one nobody uses anymore. It should not be assumed to carry over to the
+association's own project, and this document is not the place to guess at
+a replacement number. The quota is shared between Pass 1 and Pass 2 — both
+draw on the same project's allowance.
 
 **Paste one article into the association's real WordPress as a DRAFT,
 preview it, and delete the draft.** This is the only check that would
@@ -191,6 +192,37 @@ consciously deferred to Michal, who has the real site to test against; this
 project has none.
 
 ### Recommended, not blocking
+
+**A fuller search for additional news sources was done; record what it
+found so nobody repeats it.** The decisive constraint, which should be
+weighed first for any candidate: there is no SMA-relevance filter anywhere
+in the Collector — the only filter is the date window (`collector/main.py`).
+Everything a source publishes is stored, consumes a Gemini call, and lands
+on Michal's screen. This is exactly why MDA Quest was removed (see
+"Decisions that look wrong but are not" below). A broad site that covers
+SMA only occasionally is therefore not a free addition — it is a recurring
+manual-filtering tax on one person.
+
+SMA Europe is the one candidate worth trying, and most of the work is
+already done. `collector/html_scraper.py` already contains a complete,
+paginating `_scrape_sma_europe`, and `_SUPPORTED_SOURCES` there already
+dispatches to it for a source named "SMA Europe" — correctly pointed at
+`https://www.sma-europe.eu`. The source is commented out in
+`collector/sources.py` (its six-line entry, immediately after MDA Quest's,
+lines 15-20) **with no recorded reason anywhere** — not in this file, not
+in the git history. Trying it is mostly a matter of uncommenting that entry
+and watching one run's log line. A trap worth writing down: `smaeurope.org`
+is a solar inverter company, unrelated to the association — the correct
+domain is `sma-europe.eu`, which the existing scraper code already uses.
+
+Also researched, briefly: drug-maker press releases (Biogen, Novartis,
+Roche, Scholar Rock) are the earliest and most relevant source for the news
+families care about most, but publishing them means republishing
+pharmaceutical PR — a decision for the association, not an engineering one.
+Rare Disease Advisor and NeurologyLive both cover SMA well but are broad
+sites, so under the constraint above they are only worth adding if a feed
+restricted to SMA specifically exists. SMA UK is SMA-only but its content
+is largely UK-specific (NHS access, local campaigns).
 
 **Give SMA News Today a second path.** Its `rss_url` is `None`, so HTML
 scraping is its **only** route — and it is the more prolific of the two
@@ -290,6 +322,31 @@ either one herself. If the Gemini key is ever revoked, expires, or is
 blocked by Google, the pipeline simply stops producing text and she has no
 way to fix it — she would need whoever holds access to that repository.
 
+**Code4Good was not asked to preserve the repository after this cohort
+ends.** The pipeline and both its secrets (`DATABASE_URL`, `GEMINI_API_KEY`)
+live only in this repository, which nobody at the association controls —
+see the `Code4Good-26B` entry above. If it is ever deleted or archived, the
+pipeline stops permanently and Michal cannot restart it; there is no backup
+copy of this code or its workflow configuration anywhere else. A considered
+decision, not an oversight — stated plainly here because the cost is real
+and because nothing else in this project would surface it before it
+happened.
+
+**The volunteer's personal Supabase account remains a member of the
+association's "SMA Israel" organisation, on purpose, rather than being
+removed at handover.** It therefore retains full access to the
+association's data indefinitely. The reason: there is no technical contact
+for this project (see the next entry), and removing this membership would
+mean the only person who understands this system loses any ability to help
+Michal if something breaks. **Michal can remove this membership herself at
+any time**, from the Supabase organisation's member settings — this is a
+decision made on her behalf for now, not a restriction placed on her.
+
+**Michal's handover document names no technical contact, because none
+exists.** It points whoever ends up helping her at this repository instead.
+This is the direct reason the previous entry gives for why the volunteer's
+own Supabase access was left in place rather than removed.
+
 **Vercel's Hobby plan, which is restricted to non-commercial use, is fine
 here.** Vercel's own fair-use documentation states that asking for
 donations is not commercial usage. The dashboard takes no payments and shows
@@ -343,6 +400,57 @@ anywhere in this UI. If that ever turns out to matter, the fix is adding
 `reviewed_newsletter_text_he` later; nothing built here needs to change to
 allow it.
 
+**Template text in the newsletter (`newsletter_template.overrides`) is
+escaped at render, and this must stay that way.** It used to be hard-coded
+constants, which is why nothing in `buildNewsletterHtml.js` escaped them —
+only article-derived text did. It is user input now. Verified before this
+was fixed: an `&` typed into the opening paragraph emitted a raw `&`, a
+typed `<br>` became a real HTML element, and a `"` in the donation URL
+broke out of the `href` attribute and injected an attribute that hid the
+donation button entirely. The realistic trigger is not malice — it is a
+donation link with ordinary query parameters (e.g. `?a=1&b=2`). A future
+reader who sees `escapeHtml`/`escapeStrings` applied to what look like
+simple strings and takes it for unnecessary ceremony should read this
+before removing it.
+
+**The Settings screen's newsletter preview always shows both the opener
+and donation band buttons, regardless of the saved toggles — on purpose,
+and only there.** The real toggles (`show_opener_button`, default off;
+`show_donation_button`, default on) live on the newsletter-builder screen
+(`/publish`), not on Settings. But Settings is where their TEXT is edited,
+and a button whose saved default is off would otherwise never appear in
+that preview no matter what Michal typed into its label or URL — she would
+be editing it blind. `SettingsPage.jsx` forces both booleans true for this
+one preview render only (its `previewOverrides`); the real newsletter still
+respects whatever is actually saved. A future reader who notices the
+preview does not match the saved toggle state should not "fix" this —
+read the comment next to `previewOverrides` first.
+
+**Returning an already-approved article to the queue ("החזרה לתור",
+`takeBackApproval` in `dashboard/src/components/NewsCards.jsx`) writes only
+`review_status` and `publish_target` — back to `'not_reviewed'` and
+`'none'`.** `newsletter_text_he`, `newsletter_batch_id` and both
+published-at timestamps all survive untouched. So if Michal re-approves
+that article afterwards, it lands straight in the "נשלחו בעבר" / "פורסמו
+בעבר" section of the relevant `/publish` tab, with its **original** date —
+not back in the waiting list — because `PublishPage.jsx`'s `isDone` check
+for each tab is keyed on exactly those same two surviving fields. The two
+channels then behave differently, and both are correct:
+
+- **Newsletter:** the article can never enter a new issue. `NewsletterBuilder`
+  only ever receives articles still waiting (`pendingArticles`, filtered on
+  an empty `newsletter_batch_id`), so there is no way in the UI to send the
+  same article twice — deliberate, since a duplicate article in a
+  newsletter is embarrassing in front of the whole community.
+- **Website:** the article stays fully usable. `PublishItem`'s copy buttons
+  and "סמן כפורסם באתר" render regardless of whether `published_to_website_at`
+  is already set, and clicking it again simply updates the date —
+  re-publishing an updated article to a website is a legitimate, ordinary
+  act.
+
+This is the single most surprising behaviour in the dashboard, and a future
+maintainer who stumbles on it would very likely try to "fix" it.
+
 **`processing_status = 'processing'` is never written**, though the check
 constraint allows it. A run killed mid-article would leave a row stuck in that
 state, matching neither `pending` nor `failed`, so no future run would ever
@@ -379,6 +487,58 @@ Pass 1's `exhausted > 0` rule (an article that burns all
 `MAX_PROCESSING_ATTEMPTS`) is checked before this and is unaffected by it —
 that floor still always forces exit 1, even if every individual failure this
 run was itself transient.
+
+**Between roughly 20 October and 1 November 2026, the pipeline produced
+nothing while every workflow run stayed green — recorded here because the
+exit-code design in the entry above is exactly what hid it.**
+`gemini-flash-latest` — an alias Google repoints at whatever model it
+currently considers best — became far slower than the 60-second ceiling this
+project used at the time. Measured live against the real API, on two
+separate days, for a prompt whose whole answer was the word "OK":
+
+    2026-10-20   gemini-flash-latest   FAILED at 180s
+                 gemini-3.8-flash      OK at 129s
+                 gemini-3.7-flash      HTTP 503 at 21s
+                 lite tier             OK at 4.4s and 54.7s
+
+    2026-11-01   gemini-flash-latest   OK at 165s
+                 gemini-3.8-flash      OK at 110s
+                 gemini-3.7-flash      OK at 89s
+                 lite tier             OK at 8.9s and 1.6s
+
+Every article in both passes died on the first candidate's timeout, and the
+five-model fallback chain (`TRIAGE_MODEL_CANDIDATES` /
+`PUBLICATION_MODEL_CANDIDATES`) was never entered — because a timeout used
+to be classified alongside a dead network as "another model cannot help"
+(`_generate` in `processor/gemini.py`). It can: `gemini-3.8-flash` was
+answering successfully at that same moment, on both days.
+
+Both halves of the fix are in the code now: a read timeout is distinguished
+from a connection-level failure and falls through to the next candidate
+(`_CallResult.is_timeout`), and the timeout was raised from 60s to 150s —
+the measured latency above plus a margin. What belongs in THIS file is the
+part the code comments cannot carry on their own: WHY the project ever hit
+this.
+
+**The operational lesson is the more valuable half, and it generalises past
+this one bug: a timeout is classified `transient`, so the pass exits 0 and
+no alert fires. Three weeks of green Daily pipeline runs hid two articles
+that were failing every single day. A green run means "nothing failed for
+a non-transient reason", NOT "nothing is stuck."** The query that actually
+answers "is anything stuck" is a `processing_status` breakdown of
+`content_items`:
+
+```sql
+select processing_status, count(*)
+from content_items
+group by processing_status;
+```
+
+A healthy system has nearly everything at `'done'`, with any `'pending'` /
+`'failed'` count clearing within a day or two. A `'pending'` / `'failed'`
+count that does not shrink across several green runs in a row is exactly
+what this outage looked like from the inside — and nothing in the exit code
+or the one failure email this project has would ever have shown it.
 
 **Pass 2 has its own 14-day floor (`PASS2_FLOOR_DAYS` in
 `process_newsletter_text.py`), matching `LOOKBACK_DAYS` and
