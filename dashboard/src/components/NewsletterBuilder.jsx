@@ -21,7 +21,7 @@ import { buildNewsletterHtml, buildNewsletterPlainText } from '../lib/buildNewsl
 import { formatIssueDateHe } from '../lib/newsletterTheme';
 import { selectNewsletterBatch } from '../lib/selectNewsletterBatch';
 
-export default function NewsletterBuilder({ eligibleArticles, onUpdate }) {
+export default function NewsletterBuilder({ eligibleArticles, onUpdate, templateOverrides = {} }) {
   const [preview, setPreview] = useState(null); // { html, plainText, articleIds, generatedAt }
   const [copyState, setCopyState] = useState(null); // 'ok' | 'error' | null
   const [hasExported, setHasExported] = useState(false);
@@ -46,9 +46,12 @@ export default function NewsletterBuilder({ eligibleArticles, onUpdate }) {
       text: a.newsletter_text_he ?? '',
     }));
     const issueDate = formatIssueDateHe(generatedAt);
+    // The copyright line's year comes from this same generatedAt, not a
+    // fresh new Date() inside the builder — see buildNewsletterHtml.js.
+    const issueYear = generatedAt.getFullYear();
     setPreview({
-      html: buildNewsletterHtml(mapped, issueDate),
-      plainText: buildNewsletterPlainText(mapped, issueDate),
+      html: buildNewsletterHtml(mapped, issueDate, issueYear, templateOverrides),
+      plainText: buildNewsletterPlainText(mapped, issueDate, issueYear, templateOverrides),
       articleIds: articlesWithText.map((a) => a.id),
       generatedAt,
     });

@@ -326,12 +326,36 @@ The Dashboard's health check is: the most recent row where `status in ('success'
 
 ---
 
+## Newsletter template overrides
+
+`newsletter_template`
+
+A single row (`id = 1`) holding Michal's overrides to the newsletter's hard-coded Hebrew strings — the editable text around the masthead, opener, disclaimer, donation band and footer (see `dashboard/src/lib/newsletterTheme.js` for the defaults and `dashboard/src/lib/buildNewsletterHtml.js` for the merge). Not one column per string: `overrides` is `jsonb` so the set of editable fields can grow (a planned follow-up adds per-banner button toggles) without another migration.
+
+The Dashboard reads this row every time it builds a newsletter preview and merges `overrides` over the hard-coded defaults: a key PRESENT in `overrides` wins even when its value is an empty string (Michal deliberately cleared that field); only a key ABSENT from `overrides` falls back to the default. Same decision already made for `reviewed_title_he` elsewhere in this project, for the same reason.
+
+Excluded from `overrides` by design: `dir`/`lang_attr` (structural, not content), the logo (an image, deliberately kept as a hosted URL — see `newsletterTheme.js`), `THEME` (colours/fonts), and the masthead issue date (always computed at generation time, never editable). The copyright line's year is likewise always computed, never editable — only the words after it are.
+
+Reads:
+
+- `overrides`
+
+Updates:
+
+- `overrides`
+- `updated_at`
+
+If the row is missing, `overrides` is malformed, or the query fails, the Dashboard builds the newsletter from the hard-coded defaults as if nothing happened — logged to the console, never shown as an error to Michal. Nobody inherits this project to be asked why the newsletter stopped working.
+
+---
+
 ## Access control
 
-Row Level Security is enabled on `content_items` and `collector_runs`, with deliberately permissive policies (defined in `schema.sql`) for the `anon` / `authenticated` roles:
+Row Level Security is enabled on `content_items`, `collector_runs`, and `newsletter_template`, with deliberately permissive policies (defined in `schema.sql`) for the `anon` / `authenticated` roles:
 
 - `content_items` — SELECT and UPDATE only. There are no INSERT or DELETE policies, so the anon key cannot be used to create or destroy rows.
 - `collector_runs` — SELECT only.
+- `newsletter_template` — SELECT and UPDATE only. The single row is inserted by the migration itself, so there is no INSERT policy either.
 
 The Collector and Processor connect via `DATABASE_URL` as the table owner, which bypasses RLS entirely, so these policies only affect the Dashboard's anon-key access.
 

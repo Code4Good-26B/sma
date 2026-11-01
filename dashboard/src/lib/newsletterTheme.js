@@ -56,9 +56,20 @@ export const STRINGS = {
   site_label: 'www.sma.org.il',
   site_url: 'https://www.sma.org.il',
   facebook_label: 'פייסבוק · קהילת SMA ישראל',
-  copyright: '© 2026 עמותת SMA ישראל · עלון הקהילה',
+  // Was a single hard-coded '© 2026 עמותת SMA ישראל · עלון הקהילה' — in
+  // January it would still say 2026, forever. The year is now always
+  // computed by the caller (see buildNewsletterHtml.js, which builds the
+  // full line as "© " + year + " " + this tail) and is never editable;
+  // only the words after it are, which is why only the tail lives here.
+  copyright_tail: 'עמותת SMA ישראל · עלון הקהילה',
   logo_alt: 'עמותת SMA ישראל',
 };
+
+// Every key above except dir/lang_attr (structural, not content) is
+// user-editable via the newsletter_template.overrides row (see
+// buildNewsletterHtml.js, which does the actual merge at render time) —
+// derived from this object's own keys so a future string added here is
+// editable by default, with nothing else to update to keep it that way.
 
 // Public URL for the masthead/footer logo. Must stay a hosted URL, never a
 // data: URI — Gmail and most clients block embedded base64 images (see

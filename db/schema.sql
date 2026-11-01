@@ -121,9 +121,36 @@ create table if not exists collector_runs (
 create index if not exists idx_collector_runs_started_at
 on collector_runs (started_at desc);
 
+-- newsletter_template holds Michal's overrides to the newsletter's
+-- hard-coded strings (see dashboard/src/lib/newsletterTheme.js for the
+-- defaults and dashboard/src/lib/buildNewsletterHtml.js for the merge at
+-- render time) — the editable text around the masthead, opener,
+-- disclaimer, donation band and footer. One row for the whole
+-- association's standing defaults, not one row per newsletter issue — the
+-- articles themselves still come from content_items.
+--
+-- jsonb, not one column per string: the set of editable fields is expected
+-- to grow (a planned follow-up adds per-banner button toggles), and a
+-- jsonb blob means that growth never needs another migration — this
+-- project has no maintainer left to run one.
+create table if not exists newsletter_template (
+    -- Always 1: exactly one row ever exists, enforced by this check
+    -- constraint rather than by convention.
+    id int primary key default 1 check (id = 1),
+    overrides jsonb not null default '{}',
+    updated_at timestamptz not null default now()
+);
+
+-- The only row this table will ever have, inserted here rather than by the
+-- app, so the Dashboard only ever needs SELECT and UPDATE — no INSERT
+-- policy, and one less thing that can fail if the row is ever missing.
+insert into newsletter_template (id, overrides)
+values (1, '{}')
+on conflict (id) do nothing;
+
 -- Row Level Security
 --
--- RLS is enabled on both tables, with policies scoped to the `authenticated`
+-- RLS is enabled on every table below, with policies scoped to the `authenticated`
 -- role ONLY — `anon` is deliberately absent from every policy below. This
 -- used to grant `anon` the same access, because the Supabase anon key is
 -- baked into the dashboard's client-side JavaScript by Vite and is
@@ -156,6 +183,7 @@ on collector_runs (started_at desc);
 
 alter table content_items enable row level security;
 alter table collector_runs enable row level security;
+alter table newsletter_template enable row level security;
 
 -- content_items: the Dashboard reads and updates rows, but never inserts or
 -- deletes, so only SELECT and UPDATE policies exist. Their absence for
@@ -186,3 +214,23 @@ on collector_runs
 for select
 to authenticated
 using (true);
+
+-- newsletter_template: the Dashboard reads this row to render the
+-- newsletter and updates it when Michal edits an override. Same
+-- authenticated-only reasoning as the two tables above — no anon policy,
+-- and no INSERT/DELETE policy since the migration itself inserts the one
+-- row this table will ever have.
+drop policy if exists newsletter_template_select on newsletter_template;
+create policy newsletter_template_select
+on newsletter_template
+for select
+to authenticated
+using (true);
+
+drop policy if exists newsletter_template_update on newsletter_template;
+create policy newsletter_template_update
+on newsletter_template
+for update
+to authenticated
+using (true)
+with check (true);

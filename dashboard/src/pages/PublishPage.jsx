@@ -37,7 +37,15 @@ const TABS = [
   },
 ];
 
-export default function PublishPage({ articles, onUpdate }) {
+// App.jsx also passes onUpdateNewsletterTemplate on this route — the save
+// half of the (not yet built) newsletter-text-editing screen. It isn't
+// destructured here because nothing in this file calls it yet; it is
+// already sitting on this component's props for whichever future piece
+// (here or a new sibling of NewsletterBuilder) ends up hosting that UI,
+// without needing another change to App.jsx. newsletterOverrides IS used
+// already: passed straight into NewsletterBuilder so the preview renders
+// with any saved overrides merged in (see buildNewsletterHtml.js).
+export default function PublishPage({ articles, onUpdate, newsletterOverrides }) {
   const [activeTab, setActiveTab] = useState('newsletter');
 
   const approved = articles.filter(a => a.review_status === 'approved');
@@ -70,7 +78,11 @@ export default function PublishPage({ articles, onUpdate }) {
       </div>
 
       {activeTab === 'newsletter' && (
-        <NewsletterBuilder eligibleArticles={pendingArticles} onUpdate={onUpdate} />
+        <NewsletterBuilder
+          eligibleArticles={pendingArticles}
+          onUpdate={onUpdate}
+          templateOverrides={newsletterOverrides}
+        />
       )}
 
       {pendingArticles.map(article => (

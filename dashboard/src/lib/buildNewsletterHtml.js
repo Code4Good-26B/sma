@@ -29,9 +29,58 @@
 import { THEME, STRINGS, LOGO_URL, DONATION_URL } from './newsletterTheme.js';
 
 const t = THEME;
-const s = STRINGS;
-const START = 'right'; // s.dir === 'rtl' always in this Hebrew-only port
+const START = 'right'; // STRINGS.dir === 'rtl' always in this Hebrew-only port
 const END = 'left';
+
+// Every STRINGS key except the two structural ones is user-editable via
+// newsletter_template.overrides (see docs/db_contract.md) — derived from
+// STRINGS itself so a future string added there is editable by default,
+// with no second list to keep in sync.
+const EDITABLE_STRING_KEYS = Object.keys(STRINGS).filter(
+  (key) => key !== 'dir' && key !== 'lang_attr'
+);
+
+// DONATION_URL is not part of STRINGS (it's a destination, not display
+// text) but is editable the same way, under this key in the same overrides
+// object, rather than inventing a second overrides shape for one field.
+const DONATION_URL_KEY = 'donation_url';
+
+// Merges a saved overrides object over the hard-coded defaults. A key
+// PRESENT in overrides wins even when its value is an empty string (Michal
+// deliberately cleared that field, and it must render empty, not silently
+// snap back to the default) — only a key ABSENT from overrides falls back.
+// Same decision already made for reviewed_title_he elsewhere in this
+// dashboard (present-wins, not falsy-wins), implemented here with
+// hasOwnProperty rather than `??`/`||` for the same reason: those operators
+// fall back on an empty string too, which is exactly the case this must
+// NOT do. Restricted to EDITABLE_STRING_KEYS so a stray key in the jsonb
+// blob (dir, lang_attr, or anything unexpected) can never leak through.
+function mergeStrings(overrides) {
+  const safeOverrides = overrides && typeof overrides === 'object' ? overrides : {};
+  const merged = { ...STRINGS };
+  for (const key of EDITABLE_STRING_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(safeOverrides, key)) {
+      merged[key] = safeOverrides[key];
+    }
+  }
+  return merged;
+}
+
+// Same presence-wins rule as mergeStrings, for the one non-STRINGS field.
+function resolveDonationUrl(overrides) {
+  const safeOverrides = overrides && typeof overrides === 'object' ? overrides : {};
+  return Object.prototype.hasOwnProperty.call(safeOverrides, DONATION_URL_KEY)
+    ? safeOverrides[DONATION_URL_KEY]
+    : DONATION_URL;
+}
+
+// The year is always computed, never editable (see newsletterTheme.js) —
+// built from the same Date the caller already computed for issueDate, not
+// from a new Date() in here, so this file stays pure and testable without
+// freezing the clock.
+function buildCopyrightLine(year, tail) {
+  return `© ${year} ${tail}`;
+}
 
 // The Jinja template rendered with autoescaping on (`select_autoescape` in
 // publisher.py); nothing here does that automatically, so every piece of
@@ -74,7 +123,7 @@ function renderParagraphs(text) {
     .join('');
 }
 
-function renderArticleCard(article) {
+function renderArticleCard(article, s) {
   const title = escapeHtml(article.title);
   const url = escapeHtml(article.url);
   const bodyHtml = article.text ? renderParagraphs(article.text) : '';
@@ -93,11 +142,16 @@ ${bodyHtml}
 /**
  * @param {Array<{ title: string, url: string, text: string }>} articles
  * @param {string} issueDate - e.g. "ספטמבר 2026" (see formatIssueDateHe in ./newsletterTheme)
+ * @param {number} year - the masthead issue date's year, for the copyright line (never editable itself)
+ * @param {Object} [overrides] - newsletter_template.overrides, merged over the hard-coded defaults (see mergeStrings above)
  * @returns {string} the complete newsletter HTML document
  */
-export function buildNewsletterHtml(articles, issueDate) {
+export function buildNewsletterHtml(articles, issueDate, year, overrides) {
+  const s = mergeStrings(overrides);
+  const donationUrl = resolveDonationUrl(overrides);
+  const copyright = buildCopyrightLine(year, s.copyright_tail);
   const list = Array.isArray(articles) ? articles : [];
-  const cardsHtml = list.map(renderArticleCard).join('');
+  const cardsHtml = list.map((article) => renderArticleCard(article, s)).join('');
 
   return `<!DOCTYPE html>
 <html lang="${s.lang_attr}" dir="${s.dir}">
@@ -148,7 +202,7 @@ ${cardsHtml}            <div style="margin-top:18px; font-family:${t.font}; font
         <tr>
           <td align="center" bgcolor="${t.coral}" style="background:${t.coral}; padding:34px 44px;">
             <div style="max-width:380px; margin:0 auto 22px auto; font-family:${t.font}; font-size:25px; font-weight:800; line-height:1.25; color:${t.white};">${s.donation_heading}</div>
-            <a href="${DONATION_URL}" target="_blank" rel="noopener" style="display:inline-block; background:${t.white}; color:${t.coral_deep}; font-family:${t.font}; font-size:17px; font-weight:700; text-decoration:none; padding:14px 30px; border-radius:999px;">${s.donation_button}</a>
+            <a href="${donationUrl}" target="_blank" rel="noopener" style="display:inline-block; background:${t.white}; color:${t.coral_deep}; font-family:${t.font}; font-size:17px; font-weight:700; text-decoration:none; padding:14px 30px; border-radius:999px;">${s.donation_button}</a>
           </td>
         </tr>
 
@@ -169,7 +223,7 @@ ${cardsHtml}            <div style="margin-top:18px; font-family:${t.font}; font
               </tr>
             </table>
 
-            <div style="margin-top:22px; padding-top:18px; border-top:1px solid rgba(255,255,255,0.22); font-family:${t.font}; font-size:13px; line-height:1.7; color:rgba(255,255,255,0.66); text-align:${START};">${s.copyright}</div>
+            <div style="margin-top:22px; padding-top:18px; border-top:1px solid rgba(255,255,255,0.22); font-family:${t.font}; font-size:13px; line-height:1.7; color:rgba(255,255,255,0.66); text-align:${START};">${copyright}</div>
           </td>
         </tr>
 
@@ -187,7 +241,10 @@ ${cardsHtml}            <div style="margin-top:18px; font-family:${t.font}; font
 // pasting the text/html slot keeps formatting in Gmail/Outlook, but clients
 // that only accept plain text still get something readable instead of raw
 // markup.
-export function buildNewsletterPlainText(articles, issueDate) {
+export function buildNewsletterPlainText(articles, issueDate, year, overrides) {
+  const s = mergeStrings(overrides);
+  const donationUrl = resolveDonationUrl(overrides);
+  const copyright = buildCopyrightLine(year, s.copyright_tail);
   const list = Array.isArray(articles) ? articles : [];
   const lines = [`${s.title_a} ${s.title_b} · ${issueDate}`, '', s.opener, '', s.section_heading, ''];
   for (const a of list) {
@@ -195,6 +252,6 @@ export function buildNewsletterPlainText(articles, issueDate) {
     if (a.text) lines.push(a.text.trim(), '');
     lines.push(`${s.read_more} ${a.url}`, '', '---', '');
   }
-  lines.push(s.disclaimer, '', s.donation_heading, `${s.donation_button} ${DONATION_URL}`, '', s.copyright);
+  lines.push(s.disclaimer, '', s.donation_heading, `${s.donation_button} ${donationUrl}`, '', copyright);
   return lines.join('\n');
 }

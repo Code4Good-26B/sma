@@ -18,6 +18,13 @@ function App() {
   const [health, setHealth] = useState(null);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
+  // {} (not null): the one row's jsonb overrides, merged over the
+  // hard-coded newsletter defaults in buildNewsletterHtml.js. Starting at
+  // {} means the newsletter builds from defaults even before this effect
+  // resolves, and stays that way if the row is missing or the query fails
+  // — see fetchNewsletterTemplate below, which never sets anything else on
+  // failure.
+  const [newsletterOverrides, setNewsletterOverrides] = useState({});
 
   // reloadKey, not a callable fetch function passed to "נסי שוב": an effect
   // must own its own fetch call inline to synchronize with unmount (the
@@ -87,10 +94,66 @@ function App() {
     fetchHealth();
   }, []);
 
+  // newsletter_template has exactly one row (id = 1). Nobody but Michal
+  // can be inconvenienced by this failing, so any failure — the row
+  // missing, overrides malformed, or the query erroring outright — is
+  // logged and otherwise ignored: newsletterOverrides simply stays {},
+  // which makes the newsletter render from the hard-coded defaults as if
+  // this table didn't exist. No error screen, no blocked workflow.
+  useEffect(() => {
+    async function fetchNewsletterTemplate() {
+      const { data, error } = await supabase
+        .from('newsletter_template')
+        .select('overrides')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching newsletter_template:', error);
+        return;
+      }
+      const overrides = data?.overrides;
+      if (overrides == null) return; // row missing, or overrides is null — defaults stand.
+      if (typeof overrides !== 'object' || Array.isArray(overrides)) {
+        console.error('newsletter_template.overrides is malformed, ignoring:', overrides);
+        return;
+      }
+      setNewsletterOverrides(overrides);
+    }
+
+    fetchNewsletterTemplate();
+  }, []);
+
   const showToast = (message, type) => {
     clearTimeout(toastTimer.current);
     setToast({ message, type });
     toastTimer.current = setTimeout(() => setToast(null), 4000);
+  };
+
+  // Model of onUpdate below, for the one jsonb column instead of many
+  // plain ones: Postgres replaces a jsonb column wholesale on UPDATE, so
+  // changes is merged into the current overrides here, in JS, before the
+  // write — a different merge from the one buildNewsletterHtml.js does
+  // (defaults <- overrides); this one is (current overrides <- changes).
+  const onUpdateNewsletterTemplate = async (changes) => {
+    const previous = newsletterOverrides;
+    const next = { ...previous, ...changes };
+
+    setNewsletterOverrides(next);
+
+    const { error } = await supabase
+      .from('newsletter_template')
+      .update({ overrides: next, updated_at: new Date().toISOString() })
+      .eq('id', 1);
+
+    if (error) {
+      setNewsletterOverrides(previous);
+      showToast('השמירה נכשלה, נסי שוב', 'error');
+      console.error('Failed to update newsletter_template:', error);
+      return false;
+    }
+
+    return true;
   };
 
   // Returns true/false so a caller that needs to show its own success
@@ -139,7 +202,17 @@ function App() {
           <Routes>
             <Route path="/" element={<FeedPage articles={articles} onUpdate={onUpdate} />} />
             <Route path="/archive" element={<ArchivePage articles={articles} onUpdate={onUpdate} />} />
-            <Route path="/publish" element={<PublishPage articles={articles} onUpdate={onUpdate} />} />
+            <Route
+              path="/publish"
+              element={
+                <PublishPage
+                  articles={articles}
+                  onUpdate={onUpdate}
+                  newsletterOverrides={newsletterOverrides}
+                  onUpdateNewsletterTemplate={onUpdateNewsletterTemplate}
+                />
+              }
+            />
             <Route path="/stats" element={<StatsPage articles={articles} />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
