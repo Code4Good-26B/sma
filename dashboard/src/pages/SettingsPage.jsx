@@ -148,7 +148,16 @@ export default function SettingsPage({ newsletterOverrides, onUpdateNewsletterTe
     }
   };
 
-  const previewHtml = buildNewsletterHtml(SAMPLE_ARTICLES, SAMPLE_ISSUE_DATE, SAMPLE_YEAR, formValues);
+  // show_opener_button/show_donation_button are forced true HERE ONLY —
+  // the real toggles live on the newsletter-builder screen (NewsletterBuilder.jsx),
+  // not here, and this does not touch formValues (what actually gets
+  // saved) or the real newsletter in any way. Without this, a button
+  // whose saved default is off (show_opener_button) would never appear in
+  // this preview no matter what Michal types into its text/URL fields —
+  // she'd be editing it blind. Spread after formValues so these two always
+  // win regardless of what's in the form.
+  const previewOverrides = { ...formValues, show_opener_button: true, show_donation_button: true };
+  const previewHtml = buildNewsletterHtml(SAMPLE_ARTICLES, SAMPLE_ISSUE_DATE, SAMPLE_YEAR, previewOverrides);
 
   return (
     <section>
@@ -209,6 +218,11 @@ export default function SettingsPage({ newsletterOverrides, onUpdateNewsletterTe
 
           <div style={previewColumnStyle}>
             <h5 style={fieldGroupHeadingStyle}>תצוגה מקדימה (עם כתבות לדוגמה)</h5>
+            <p style={previewNoteStyle}>
+              לנוחות העריכה, שני הכפתורים (בפתיחה ובתרומה) מוצגים כאן תמיד כדי
+              שניתן לראות את הטקסט שלהם — האם כל כפתור יוצג בניוזלטר שנשלח
+              בפועל נקבע במסך בניית הניוזלטר, לא כאן.
+            </p>
             <iframe
               title="תצוגה מקדימה של הניוזלטר"
               srcDoc={previewHtml}
@@ -453,4 +467,12 @@ const previewFrameStyle = {
   border: '1px solid var(--border)',
   borderRadius: '6px',
   background: '#fff',
+};
+
+const previewNoteStyle = {
+  margin: '0 0 10px 0',
+  fontSize: '0.78rem',
+  color: 'var(--text)',
+  opacity: 0.75,
+  lineHeight: 1.5,
 };

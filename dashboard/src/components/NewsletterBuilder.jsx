@@ -43,6 +43,24 @@ export default function NewsletterBuilder({
   // construction an image chosen for this issue has no second use once
   // it's sent. Lost on reload — intentional, not a gap to fix.
   const [imageUrls, setImageUrls] = useState({});
+  // Keyed by article id too: true once that article's thumbnail <img>
+  // failed to load. Separate from imageUrls so clearing it (on the next
+  // edit to that article's field, see handleImageUrlChange) doesn't need
+  // to touch the URL itself.
+  const [imageLoadErrors, setImageLoadErrors] = useState({});
+
+  const handleImageUrlChange = (articleId, value) => {
+    setImageUrls((prev) => ({ ...prev, [articleId]: value }));
+    // Clears on every edit, not just a successful one: Michal typing a fix
+    // should make the error message go away immediately, before the new
+    // URL has even had a chance to load or fail on its own.
+    setImageLoadErrors((prev) => {
+      if (!prev[articleId]) return prev;
+      const next = { ...prev };
+      delete next[articleId];
+      return next;
+    });
+  };
 
   const {
     included: articlesWithText,
@@ -227,6 +245,11 @@ export default function NewsletterBuilder({
           <p style={articleImagesHeadingStyle}>
             תמונה לכתבה (אופציונלי, לניוזלטר הזה בלבד — לא נשמר להרצה הבאה):
           </p>
+          <p style={articleImagesHintStyle}>
+            איך מוצאים כתובת לתמונה: לוחצים קליק ימני על התמונה המבוקשת באתר
+            האינטרנט, ובוחרים "העתק כתובת תמונה" (Copy image address),
+            ומדביקים אותה בשדה שמתחת לכתבה המתאימה.
+          </p>
           {articlesWithText.map((a) => (
             <div key={a.id} style={articleImageRowStyle}>
               <span style={articleImageTitleStyle}>
@@ -238,15 +261,24 @@ export default function NewsletterBuilder({
                 dir="ltr"
                 placeholder="כתובת URL של תמונה (אופציונלי)"
                 value={imageUrls[a.id] ?? ''}
-                onChange={(e) =>
-                  setImageUrls((prev) => ({ ...prev, [a.id]: e.target.value }))
-                }
+                onChange={(e) => handleImageUrlChange(a.id, e.target.value)}
               />
-              {imageUrls[a.id] && (
-                // No onError handling on purpose: the browser's own
-                // broken-image glyph IS the "obvious the moment it's
-                // pasted" signal a bad URL needs.
-                <img src={imageUrls[a.id]} alt="" style={articleImageThumbStyle} />
+              {imageUrls[a.id] && !imageLoadErrors[a.id] && (
+                <img
+                  src={imageUrls[a.id]}
+                  alt=""
+                  style={articleImageThumbStyle}
+                  onError={() => setImageLoadErrors((prev) => ({ ...prev, [a.id]: true }))}
+                />
+              )}
+              {imageUrls[a.id] && imageLoadErrors[a.id] && (
+                // Replaces the thumbnail entirely rather than showing the
+                // browser's own broken-image glyph alongside it — that
+                // glyph reads to a non-technical user as "the system is
+                // broken", not "this link is wrong".
+                <span style={articleImageErrorStyle}>
+                  התמונה לא נטענה — נראה שהכתובת שגויה (לא בעיה בניוזלטר עצמו)
+                </span>
               )}
             </div>
           ))}
@@ -348,6 +380,14 @@ const articleImagesHeadingStyle = {
   color: 'var(--text)',
 };
 
+const articleImagesHintStyle = {
+  margin: '-4px 0 4px 0',
+  fontSize: '0.78rem',
+  color: 'var(--text)',
+  opacity: 0.75,
+  lineHeight: 1.5,
+};
+
 const articleImageRowStyle = {
   display: 'flex',
   alignItems: 'center',
@@ -379,6 +419,12 @@ const articleImageThumbStyle = {
   borderRadius: '6px',
   border: '1px solid var(--border)',
   flexShrink: 0,
+};
+
+const articleImageErrorStyle = {
+  fontSize: '0.78rem',
+  color: '#b45309',
+  flex: '1 1 160px',
 };
 
 const generateBtnStyle = {
